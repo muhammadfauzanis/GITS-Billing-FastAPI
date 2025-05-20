@@ -28,6 +28,30 @@ def get_client_projects(request: Request, db: Annotated = Depends(get_db)):
 
     return {"projects": [{"id": row[0], "projectId": row[1]} for row in projects]}
 
+@router.get("/breakdown/services")
+def get_overall_service_breakdown(
+    request: Request,
+    month: str = Query(...),
+    year: str = Query(default=str(datetime.now().year)),
+    db: Annotated = Depends(get_db)
+):
+    client_id = request.state.user.get("clientId")
+    if not month:
+        raise HTTPException(status_code=400, detail="month is required")
+
+    query_month = f"{year}-{str(month).zfill(2)}-01"
+
+    cursor = db.cursor()
+    cursor.execute(GET_OVERALL_SERVICE_BREAKDOWN, (client_id, query_month))
+    rows = cursor.fetchall()
+
+    breakdown = [{
+        "service": row[0],
+        "value": format_currency(float(row[1])),
+        "rawValue": float(row[1])
+    } for row in rows]
+
+    return breakdown
 
 @router.get("/breakdown/{project_id}")
 def get_project_breakdown(
@@ -63,33 +87,6 @@ def get_project_breakdown(
             "rawValue": total
         }
     }
-
-
-@router.get("/breakdown/services")
-def get_overall_service_breakdown(
-    request: Request,
-    month: str = Query(...),
-    year: str = Query(default=str(datetime.now().year)),
-    db: Annotated = Depends(get_db)
-):
-    client_id = request.state.user.get("clientId")
-    if not month:
-        raise HTTPException(status_code=400, detail="month is required")
-
-    query_month = f"{year}-{str(month).zfill(2)}-01"
-
-    cursor = db.cursor()
-    cursor.execute(GET_OVERALL_SERVICE_BREAKDOWN, (client_id, query_month))
-    rows = cursor.fetchall()
-
-    breakdown = [{
-        "service": row[0],
-        "value": format_currency(float(row[1])),
-        "rawValue": float(row[1])
-    } for row in rows]
-
-    return breakdown
-
 
 @router.get("/summary")
 def get_billing_summary(request: Request, db: Annotated = Depends(get_db)):
