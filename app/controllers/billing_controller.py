@@ -95,7 +95,7 @@ def get_overall_service_breakdown(
 def get_billing_summary(request: Request, db: Annotated = Depends(get_db)):
     client_id = request.state.user.get("clientId")
     now = datetime.now()
-    current_month_date = now.replace(day=1)
+    current_month_date = now.replace(day=1).date()
     last_month_date = (current_month_date - timedelta(days=1)).replace(day=1)
 
     cursor = db.cursor()

@@ -45,7 +45,7 @@ GET_BILLING_TOTAL_CURRENT = """
   FROM billing_data bd
   JOIN projects p ON bd.project_id = p.project_id
   WHERE p.client_id = %s
-    AND bd.month_grouped_by_year_month = %s
+    AND DATE(bd.month_grouped_by_year_month) = %s
     AND bd.gcp_services IS NULL
 """
 
