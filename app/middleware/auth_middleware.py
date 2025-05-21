@@ -11,8 +11,21 @@ load_dotenv()
 SECRET_KEY = os.getenv("JWT_SECRET")
 ALGORITHM = "HS256"
 
+# app/middleware/auth_middleware.py
+
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # ✅ Lewatkan auth untuk endpoint tertentu (public)
+        public_paths = ["/api/auth/login", "/api/auth/register"]
+
+        if request.url.path in public_paths:
+            return await call_next(request)
+
+        # ✅ Izinkan preflight
+        if request.method == "OPTIONS":
+            return Response(status_code=200)
+
+        # ✅ Cek token
         auth_header = request.headers.get("Authorization")
         token = auth_header.split(" ")[1] if auth_header and " " in auth_header else None
 

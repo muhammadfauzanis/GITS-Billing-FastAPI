@@ -72,12 +72,18 @@ def user_login(
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    user_id, user_email, user_password, client_id, is_password_set = user
+    user_id, user_email, user_password, role, client_id, is_password_set = user
 
     if not verify_password(password, user_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    token = generate_token_and_set_cookie(user_id, user_email, client_id, response)
+    token = generate_token_and_set_cookie(
+        user_id=user_id,
+        name=user_email,
+        role=role,
+        client_id=client_id,
+        response=response
+    )
 
     return {
         "message": "Login successful",
@@ -86,6 +92,7 @@ def user_login(
             "id": user_id,
             "email": user_email,
             "clientId": client_id,
+            "role": role,
             "isPasswordSet": is_password_set,
         },
     }
@@ -114,7 +121,7 @@ def set_new_password(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if user[4]:  # is_password_set
+    if user[5]:  # is_password_set
         raise HTTPException(status_code=400, detail="Password already set")
 
     hashed = hash_password(password)

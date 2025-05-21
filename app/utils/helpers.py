@@ -7,9 +7,10 @@ except locale.Error:
 
 def format_currency(amount: float) -> str:
     try:
-        return f"Rp {int(round(amount)):,}".replace(",", ".")
+        formatted = f"{amount:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        return f"Rp {formatted}"
     except Exception:
-        return f"Rp {amount:,.0f}".replace(",", ".")
+        return f"Rp {amount:.2f}".replace(".", ",")
 
 
 def calculate_projection(current_amount: float, current_day: int, days_in_month: int) -> float:

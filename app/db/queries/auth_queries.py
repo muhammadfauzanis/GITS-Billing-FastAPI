@@ -6,7 +6,7 @@ VALUES (%s, %s, %s, FALSE)
 """
 
 get_user_by_email_query = """
-SELECT id, email, password, client_id, is_password_set 
+SELECT id, email, password, role, client_id, is_password_set 
 FROM users 
 WHERE email = %s
 """

@@ -9,10 +9,13 @@ from app.db.queries.billing_queries import (
     GET_OVERALL_SERVICE_BREAKDOWN,
     GET_BILLING_TOTAL_CURRENT,
     GET_BILLING_TOTAL_LAST,
+    GET_BILLING_BUDGET,
+    UPDATE_BILLING_BUDGET,
     get_monthly_usage_query
 )
 from typing import Annotated
 from datetime import datetime, timedelta
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -107,8 +110,12 @@ def get_billing_summary(request: Request, db: Annotated = Depends(get_db)):
     current_day = min(now.day, days_in_month)
     projection = calculate_projection(current_value, current_day, days_in_month)
 
-    budget_value = 1500000
+    cursor.execute(GET_BILLING_BUDGET, (client_id,))
+    result = cursor.fetchone()
+    budget_value = float(result[0]) if result and result[0] is not None else 1500000
+    budget_threshold = int(result[1]) if result and result[1] is not None else 80
     budget_percentage = round((current_value / budget_value) * 100) if budget_value else 0
+
 
     return {
         "currentMonth": {
@@ -134,6 +141,24 @@ def get_billing_summary(request: Request, db: Annotated = Depends(get_db)):
         }
     }
 
+class BillingSettings(BaseModel):
+    budget_value: float
+    budget_threshold: int
+
+@router.post("/budget")
+def update_billing_settings(
+    payload: BillingSettings,
+    request: Request,
+    db: Annotated = Depends(get_db)
+):
+    client_id = request.state.user.get("clientId")
+    print(payload)
+
+    cursor = db.cursor()
+    cursor.execute(UPDATE_BILLING_BUDGET, (payload.budget_value, payload.budget_threshold, client_id))
+    db.commit()
+
+    return {"message": "Billing settings updated successfully"}
 
 @router.get("/monthly")
 def get_monthly_usage(
@@ -169,7 +194,7 @@ def get_monthly_usage(
         key = row[0]
         if key not in grouped:
             grouped[key] = {"id": row[0], "name": row[1], "months": {}}
-        label = datetime.strptime(row[2], "%Y-%m-%d").strftime("%B %Y")
+        label = row[2].strftime("%B %Y")
         grouped[key]["months"][label] = float(row[3])
 
     for item in grouped.values():

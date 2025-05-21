@@ -58,6 +58,21 @@ GET_BILLING_TOTAL_LAST = """
     AND bd.gcp_services IS NULL
 """
 
+# app/db/queries/billing_settings_queries.py
+
+GET_BILLING_BUDGET = """
+SELECT budget_value, budget_threshold
+FROM clients
+WHERE id = %s
+"""
+
+UPDATE_BILLING_BUDGET = """
+UPDATE clients
+SET budget_value = %s, budget_threshold = %s
+WHERE id = %s
+"""
+
+
 def get_monthly_usage_query(group_by: str, month_count: int) -> str:
     placeholders = ', '.join([f"%s" for _ in range(month_count)])
     return f"""
