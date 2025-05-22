@@ -72,6 +72,18 @@ SET budget_value = %s, budget_threshold = %s
 WHERE id = %s
 """
 
+GET_PROJECT_TOTALS_BY_MONTH = """
+  SELECT 
+    bd.project_id,
+    SUM(bd.agg_value) AS total
+  FROM billing_data bd
+  JOIN projects p ON bd.project_id = p.project_id
+  WHERE p.client_id = %s
+    AND bd.month_grouped_by_year_month = %s
+    AND bd.gcp_services IS NULL
+  GROUP BY bd.project_id
+  ORDER BY total DESC
+"""
 
 def get_monthly_usage_query(group_by: str, month_count: int) -> str:
     placeholders = ', '.join([f"%s" for _ in range(month_count)])

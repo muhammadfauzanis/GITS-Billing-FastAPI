@@ -10,6 +10,7 @@ from app.db.queries.billing_queries import (
     GET_BILLING_TOTAL_CURRENT,
     GET_BILLING_TOTAL_LAST,
     GET_BILLING_BUDGET,
+    GET_PROJECT_TOTALS_BY_MONTH,
     UPDATE_BILLING_BUDGET,
     get_monthly_usage_query
 )
@@ -140,6 +141,43 @@ def get_billing_summary(request: Request, db: Annotated = Depends(get_db)):
             "label": f"{budget_percentage}% dari budget"
         }
     }
+
+@router.get("/project-total")
+def get_project_totals_by_month(
+    request: Request,
+    month: int = Query(..., ge=1, le=12),
+    year: int = Query(default=datetime.now().year),
+    db: Annotated = Depends(get_db)
+):
+    client_id = request.state.user.get("clientId")
+    if not client_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    query_month = f"{year}-{str(month).zfill(2)}-01"
+
+    cursor = db.cursor()
+    cursor.execute(GET_PROJECT_TOTALS_BY_MONTH, (client_id, query_month))
+    rows = cursor.fetchall()
+
+    breakdown = [
+        {
+            "service": row[0],  # ini adalah project_id
+            "value": format_currency(float(row[1])),
+            "rawValue": float(row[1])
+        }
+        for row in rows
+    ]
+
+    total = sum(item["rawValue"] for item in breakdown)
+
+    return {
+        "breakdown": breakdown,
+        "total": {
+            "value": format_currency(total),
+            "rawValue": total
+        }
+    }
+
 
 class BillingSettings(BaseModel):
     budget_value: float
