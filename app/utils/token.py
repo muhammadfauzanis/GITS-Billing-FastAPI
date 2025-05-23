@@ -28,13 +28,17 @@ def generate_token_and_set_cookie(
 
     token = jwt.encode(token_data, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
+    max_age_seconds = 15 * 24 * 60 * 60
+
     response.set_cookie(
         key="token",
         value=token,
         httponly=True,
-        max_age=15 * 24 * 60 * 60,  
-        samesite="none",           
-        secure=False              
+        max_age=max_age_seconds,
+        expires=max_age_seconds,
+        path="/",
+        samesite="none",   
+        secure=True       
     )
 
     return token
