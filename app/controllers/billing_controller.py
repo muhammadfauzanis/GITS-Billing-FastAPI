@@ -180,23 +180,66 @@ def get_project_totals_by_month(
 
 
 class BillingSettings(BaseModel):
-    budget_value: float
-    budget_threshold: int
+    budget_value: float | None = None
+    budget_threshold: int | None = None
 
-@router.post("/budget")
+
+@router.patch("/budget")
 def update_billing_settings(
     payload: BillingSettings,
     request: Request,
     db: Annotated = Depends(get_db)
 ):
     client_id = request.state.user.get("clientId")
-    print(payload)
+
+    if payload.budget_value is None and payload.budget_threshold is None:
+        raise HTTPException(status_code=400, detail="At least one field must be provided")
+
+    updates = []
+    values = []
+
+    if payload.budget_value is not None:
+        updates.append("budget_value = %s")
+        values.append(payload.budget_value)
+
+    if payload.budget_threshold is not None:
+        updates.append("budget_threshold = %s")
+        values.append(payload.budget_threshold)
+
+    values.append(client_id)
+
+    query = f"""
+        UPDATE clients
+        SET {", ".join(updates)}
+        WHERE id = %s
+    """
 
     cursor = db.cursor()
-    cursor.execute(UPDATE_BILLING_BUDGET, (payload.budget_value, payload.budget_threshold, client_id))
+    cursor.execute(query, tuple(values))
     db.commit()
 
     return {"message": "Billing settings updated successfully"}
+
+
+@router.get("/budget")
+def get_billing_settings(
+    request: Request,
+    db: Annotated = Depends(get_db)
+):
+    client_id = request.state.user.get("clientId")
+
+    cursor = db.cursor()
+    cursor.execute(GET_BILLING_BUDGET, (client_id,))
+    result = cursor.fetchone()
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Client budget not found")
+
+    return {
+        "budgetValue": float(result[0]),
+        "budgetThreshold": int(result[1])
+    }
+
 
 @router.get("/monthly")
 def get_monthly_usage(
