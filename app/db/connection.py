@@ -4,13 +4,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URI = os.getenv("DATABASE_URI")
+test = os.getenv("test")
 
-print(DATABASE_URL)
+print(DATABASE_URI)
 
 def get_db():
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = psycopg2.connect(DATABASE_URI)
         return conn
     except Exception as e:
         print("Database connection error:", e)
