@@ -33,7 +33,7 @@ def generate_token_and_set_cookie(
         value=token,
         httponly=True,
         max_age=15 * 24 * 60 * 60,  
-        samesite="Lax",           
+        samesite="none",           
         secure=False              
     )
 
