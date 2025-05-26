@@ -3,8 +3,8 @@ from starlette.requests import Request
 from starlette.responses import Response
 from fastapi import status
 from jose import jwt, JWTError
-import os
 from dotenv import load_dotenv
+import os
 
 load_dotenv()
 
@@ -13,13 +13,13 @@ ALGORITHM = "HS256"
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        public_paths = ["/api/auth/login", "/api/auth/register", "/docs", "/openapi.json"]
+        public_paths = ["/api/auth/login", "/api/auth/register", "/docs", "/openapi.json", "/redoc"]
+
+        if any(request.url.path.startswith(path) for path in public_paths):
+            return await call_next(request)
 
         if request.method == "OPTIONS":
             return Response(status_code=200)
-
-        if request.url.path in public_paths:
-            return await call_next(request)
 
         auth_header = request.headers.get("Authorization")
         token = auth_header.split(" ")[1] if auth_header and " " in auth_header else None
