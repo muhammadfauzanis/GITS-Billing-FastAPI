@@ -37,8 +37,8 @@ def generate_token_and_set_cookie(
         max_age=max_age_seconds,
         expires=max_age_seconds,
         path="/",
-        samesite="none",   
-        secure=True       
+        samesite="lax",   
+        secure=False     
     )
 
     return token

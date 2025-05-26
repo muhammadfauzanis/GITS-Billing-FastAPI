@@ -11,7 +11,7 @@ load_dotenv()
 
 CLIENT_URL = os.getenv("CLIENT_URL", "http://localhost:3000")
 
-allow_origins = [CLIENT_URL]
+allow_origins = ["http://localhost:3000"]
 
 middleware = [
     Middleware(
