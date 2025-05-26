@@ -7,13 +7,11 @@ from starlette.middleware import Middleware
 from app.routes import auth_routes, billing_routes, user_routes
 from app.middleware.auth_middleware import AuthMiddleware
 
-# Load env variables
 load_dotenv()
 
-LOCAL_URL = os.getenv("LOCAL_URL", "http://localhost:3000")
-SERVER_URL = os.getenv("SERVER_URL")
+CLIENT_URL = os.getenv("CLIENT_URL", "http://localhost:3000")
 
-allow_origins = [url for url in [LOCAL_URL, SERVER_URL] if url]
+allow_origins = [CLIENT_URL]
 
 middleware = [
     Middleware(
