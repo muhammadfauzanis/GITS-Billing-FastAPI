@@ -9,9 +9,9 @@ from app.middleware.auth_middleware import AuthMiddleware
 
 load_dotenv()
 
-CLIENT_URL = os.getenv("CLIENT_URL", "http://localhost:3000")
+CLIENT_URL = os.getenv("CLIENT_URL")
 
-allow_origins = [CLIENT_URL]
+allow_origins = [CLIENT_URL,'http://localhost:3000']
 
 middleware = [
     Middleware(
