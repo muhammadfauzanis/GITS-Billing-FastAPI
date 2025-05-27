@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Response
 from pydantic import BaseModel
 from app.db.connection import get_db
-from app.utils.token import generate_token_and_set_cookie
+from app.utils.token import generate_token
 from app.db.queries.auth_queries import (
     check_user_exists_query,
     insert_user_query,
@@ -77,12 +77,11 @@ def user_login(
     if not verify_password(password, user_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    token = generate_token_and_set_cookie(
+    token = generate_token(
         user_id=user_id,
         name=user_email,
         role=role,
         client_id=client_id,
-        response=response
     )
 
     return {
