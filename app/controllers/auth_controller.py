@@ -1,15 +1,16 @@
-from fastapi import APIRouter, HTTPException, Depends, Response
+from fastapi import APIRouter, HTTPException, Depends, Response, Request
 from pydantic import BaseModel
+import bcrypt
+from typing import Annotated, Optional
 from app.db.connection import get_db
 from app.utils.token import generate_token
 from app.db.queries.auth_queries import (
     check_user_exists_query,
     insert_user_query,
-    get_user_by_email_query
+    get_user_by_email_query,
+    GET_USER_PASSWORD_AND_STATUS,
+    UPDATE_USER_PASSWORD
 )
-import bcrypt
-from typing import Annotated
-from typing import Optional
 
 router = APIRouter()
 
@@ -22,8 +23,8 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 class RegisterSchema(BaseModel):
     email: str
     password: str
-    role: str  # "admin" atau "client"
-    clientId: Optional[str] = None  # optional kalau bukan client
+    role: str
+    clientId: Optional[str] = None
 
 class LoginSchema(BaseModel):
     email: str
@@ -34,7 +35,10 @@ class PasswordSchema(BaseModel):
     password: str
     repassword: str
 
-# --- Endpoints ---
+class ChangePasswordSchema(BaseModel):
+    new_password: str
+    confirm_new_password: str
+
 @router.post("/register")
 def register_user(
     payload: RegisterSchema,
@@ -53,7 +57,7 @@ def register_user(
         raise HTTPException(status_code=400, detail="Client ID is required for role 'client'")
 
     if role == "admin":
-        client_id = None  # pastikan tidak dikirim ke DB
+        client_id = None
 
     cursor = db.cursor()
     cursor.execute(check_user_exists_query, (email,))
@@ -61,7 +65,7 @@ def register_user(
         raise HTTPException(status_code=409, detail="Email already exists")
 
     hashed = hash_password(password)
-    cursor.execute(insert_user_query, (email, hashed, client_id, role))  # update query
+    cursor.execute(insert_user_query, (email, hashed, client_id, role))
     db.commit()
 
     return {"message": "User registered successfully"}
@@ -130,7 +134,7 @@ def set_new_password(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if user[5]:  # is_password_set
+    if user[5]:
         raise HTTPException(status_code=400, detail="Password already set")
 
     hashed = hash_password(password)
@@ -141,3 +145,35 @@ def set_new_password(
     db.commit()
 
     return {"message": "Password has been set successfully"}
+
+@router.patch("/change-password")
+def change_user_password(
+    payload: ChangePasswordSchema,
+    request: Request,
+    db: Annotated = Depends(get_db)
+):
+    user_id = request.state.user.get("id")
+
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated or user ID missing in token.")
+
+    new_password = payload.new_password
+    confirm_new_password = payload.confirm_new_password
+
+    if new_password != confirm_new_password:
+        raise HTTPException(status_code=400, detail="New passwords do not match")
+
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+
+    cursor = db.cursor()
+    cursor.execute("SELECT id FROM users WHERE id = %s", (user_id,))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    hashed_new_password = hash_password(new_password)
+
+    cursor.execute(UPDATE_USER_PASSWORD, (hashed_new_password, True, user_id))
+    db.commit()
+
+    return {"message": "Password updated successfully."}
