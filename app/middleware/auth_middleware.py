@@ -36,7 +36,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             request.state.user = {
                 "id": payload.get("userId"),
                 "username": payload.get("username"),
-                "clientId": payload.get("clientId")
+                "clientId": payload.get("clientId"),
+                "role":payload.get("role")
             }
         except JWTError:
             return Response(

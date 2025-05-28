@@ -9,21 +9,21 @@ from app.db.queries.auth_queries import (
 )
 import bcrypt
 from typing import Annotated
+from typing import Optional
 
 router = APIRouter()
 
-# --- Password Hashing Helpers ---
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
-# --- Pydantic Schemas ---
 class RegisterSchema(BaseModel):
     email: str
     password: str
-    clientId: str
+    role: str  # "admin" atau "client"
+    clientId: Optional[str] = None  # optional kalau bukan client
 
 class LoginSchema(BaseModel):
     email: str
@@ -43,7 +43,17 @@ def register_user(
 ):
     email = payload.email
     password = payload.password
+    role = payload.role.lower()
     client_id = payload.clientId
+
+    if role not in ["admin", "client"]:
+        raise HTTPException(status_code=400, detail="Invalid role. Must be 'admin' or 'client'")
+
+    if role == "client" and not client_id:
+        raise HTTPException(status_code=400, detail="Client ID is required for role 'client'")
+
+    if role == "admin":
+        client_id = None  # pastikan tidak dikirim ke DB
 
     cursor = db.cursor()
     cursor.execute(check_user_exists_query, (email,))
@@ -51,7 +61,7 @@ def register_user(
         raise HTTPException(status_code=409, detail="Email already exists")
 
     hashed = hash_password(password)
-    cursor.execute(insert_user_query, (email, hashed, client_id))
+    cursor.execute(insert_user_query, (email, hashed, client_id, role))  # update query
     db.commit()
 
     return {"message": "User registered successfully"}
