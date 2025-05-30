@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request, HTTPException, Depends, Query
 from fastapi.responses import JSONResponse
 from app.db.connection import get_db
-from app.utils.helpers import format_currency, calculate_projection
+from app.utils.helpers import format_currency, calculate_projection_moving_average
 from app.db.queries.billing_queries import (
     GET_CLIENT_PROJECTS,
     GET_PROJECT_BREAKDOWN,
@@ -11,6 +11,7 @@ from app.db.queries.billing_queries import (
     GET_BILLING_TOTAL_LAST,
     GET_BILLING_BUDGET,
     GET_PROJECT_TOTALS_BY_MONTH,
+    GET_LAST_N_MONTHS_TOTALS,
     UPDATE_BILLING_BUDGET,
     get_monthly_usage_query
 )
@@ -106,17 +107,30 @@ def get_billing_summary(request: Request, db: Annotated = Depends(get_db)):
     cursor.execute(GET_BILLING_TOTAL_LAST, (client_id, last_month_date))
     last_value = float(cursor.fetchone()[0] or 0)
 
+    num_months_for_projection = 3 
+    cursor.execute(GET_LAST_N_MONTHS_TOTALS, (client_id, current_month_date, num_months_for_projection))
+    historical_rows = cursor.fetchall()
+    historical_data = [float(row[0]) for row in historical_rows if row[0] is not None]
+
     percentage_change = 0 if last_value == 0 else ((current_value - last_value) / last_value) * 100
     days_in_month = (current_month_date.replace(month=current_month_date.month % 12 + 1, day=1) - timedelta(days=1)).day
     current_day = min(now.day, days_in_month)
-    projection = calculate_projection(current_value, current_day, days_in_month)
+
+    projection = calculate_projection_moving_average(
+        current_value,
+        current_day,
+        days_in_month,
+        historical_data,
+        num_months_for_average=num_months_for_projection
+    )
+
+    print(projection)
 
     cursor.execute(GET_BILLING_BUDGET, (client_id,))
     result = cursor.fetchone()
     budget_value = float(result[0]) if result and result[0] is not None else 1500000
     budget_threshold = int(result[1]) if result and result[1] is not None else 80
     budget_percentage = round((current_value / budget_value) * 100) if budget_value else 0
-
 
     return {
         "currentMonth": {

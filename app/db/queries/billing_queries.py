@@ -85,6 +85,18 @@ GET_PROJECT_TOTALS_BY_MONTH = """
   ORDER BY total DESC
 """
 
+GET_LAST_N_MONTHS_TOTALS = """
+  SELECT SUM(bd.agg_value) AS total, bd.month_grouped_by_year_month
+  FROM billing_data bd
+  JOIN projects p ON bd.project_id = p.project_id
+  WHERE p.client_id = %s
+    AND bd.month_grouped_by_year_month < %s -- Filter for months before the current month
+    AND bd.gcp_services IS NULL
+  GROUP BY bd.month_grouped_by_year_month
+  ORDER BY bd.month_grouped_by_year_month DESC
+  LIMIT %s; -- Get the last N months
+"""
+
 def get_monthly_usage_query(group_by: str, month_count: int) -> str:
     placeholders = ', '.join([f"%s" for _ in range(month_count)])
     return f"""
