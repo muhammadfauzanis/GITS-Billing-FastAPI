@@ -40,6 +40,14 @@ GET_OVERALL_SERVICE_BREAKDOWN = """
   ORDER BY total DESC
 """
 
+GET_SERVICE_TOTAL_COST = """
+  SELECT SUM(agg_value) as total 
+  FROM billing_data 
+  WHERE project_id = %s 
+    AND month_grouped_by_year_month = %s 
+    AND gcp_services IS NULL
+"""
+
 GET_BILLING_TOTAL_CURRENT = """
   SELECT SUM(bd.agg_value) AS total
   FROM billing_data bd
@@ -57,8 +65,6 @@ GET_BILLING_TOTAL_LAST = """
     AND bd.month_grouped_by_year_month = %s
     AND bd.gcp_services IS NULL
 """
-
-# app/db/queries/billing_settings_queries.py
 
 GET_BILLING_BUDGET = """
 SELECT budget_value, budget_threshold
@@ -95,6 +101,10 @@ GET_LAST_N_MONTHS_TOTALS = """
   GROUP BY bd.month_grouped_by_year_month
   ORDER BY bd.month_grouped_by_year_month DESC
   LIMIT %s; -- Get the last N months
+"""
+
+GET_CLIENT_NAME_BY_ID = """
+  SELECT name FROM clients WHERE id = %s
 """
 
 def get_monthly_usage_query(group_by: str, month_count: int) -> str:

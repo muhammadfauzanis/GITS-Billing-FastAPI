@@ -1,4 +1,3 @@
-# app/utils/token.py
 from jose import jwt
 from datetime import datetime, timedelta, timezone
 import os
