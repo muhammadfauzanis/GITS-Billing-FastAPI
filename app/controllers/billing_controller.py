@@ -20,10 +20,7 @@ from app.db.queries.billing_queries import (
     get_monthly_usage_query,
 )
 
-router = APIRouter(
-    prefix="/billing",
-    tags=["billing"]
-)
+router = APIRouter()
 
 def _get_target_client_id(request: Request, provided_client_id: Optional[str]) -> str:
     user_details = request.state.user
