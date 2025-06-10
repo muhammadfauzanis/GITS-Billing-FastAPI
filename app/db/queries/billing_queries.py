@@ -14,7 +14,6 @@ GET_PROJECT_BREAKDOWN = """
   FROM billing_data 
   WHERE project_id = %s 
     AND month_grouped_by_year_month = %s 
-    AND gcp_services IS NOT NULL 
   GROUP BY gcp_services 
   ORDER BY total DESC
 """
@@ -23,8 +22,7 @@ GET_PROJECT_TOTAL_COST = """
   SELECT SUM(agg_value) as total 
   FROM billing_data 
   WHERE project_id = %s 
-    AND month_grouped_by_year_month = %s 
-    AND gcp_services IS NULL
+    AND month_grouped_by_year_month = %s
 """
 
 GET_OVERALL_SERVICE_BREAKDOWN = """
@@ -35,7 +33,6 @@ GET_OVERALL_SERVICE_BREAKDOWN = """
   JOIN projects p ON bd.project_id = p.project_id
   WHERE p.client_id = %s
     AND bd.month_grouped_by_year_month = %s
-    AND bd.gcp_services IS NOT NULL
   GROUP BY bd.gcp_services
   ORDER BY total DESC
 """
@@ -44,8 +41,7 @@ GET_SERVICE_TOTAL_COST = """
   SELECT SUM(agg_value) as total 
   FROM billing_data 
   WHERE project_id = %s 
-    AND month_grouped_by_year_month = %s 
-    AND gcp_services IS NULL
+    AND month_grouped_by_year_month = %s
 """
 
 GET_BILLING_TOTAL_CURRENT = """
@@ -54,7 +50,6 @@ GET_BILLING_TOTAL_CURRENT = """
   JOIN projects p ON bd.project_id = p.project_id
   WHERE p.client_id = %s
     AND DATE(bd.month_grouped_by_year_month) = %s
-    AND bd.gcp_services IS NULL
 """
 
 GET_BILLING_TOTAL_LAST = """
@@ -63,7 +58,6 @@ GET_BILLING_TOTAL_LAST = """
   JOIN projects p ON bd.project_id = p.project_id
   WHERE p.client_id = %s
     AND bd.month_grouped_by_year_month = %s
-    AND bd.gcp_services IS NULL
 """
 
 GET_BILLING_BUDGET = """
@@ -86,7 +80,6 @@ GET_PROJECT_TOTALS_BY_MONTH = """
   JOIN projects p ON bd.project_id = p.project_id
   WHERE p.client_id = %s
     AND bd.month_grouped_by_year_month = %s
-    AND bd.gcp_services IS NULL
   GROUP BY bd.project_id
   ORDER BY total DESC
 """
@@ -96,11 +89,10 @@ GET_LAST_N_MONTHS_TOTALS = """
   FROM billing_data bd
   JOIN projects p ON bd.project_id = p.project_id
   WHERE p.client_id = %s
-    AND bd.month_grouped_by_year_month < %s -- Filter for months before the current month
-    AND bd.gcp_services IS NULL
+    AND bd.month_grouped_by_year_month < %s
   GROUP BY bd.month_grouped_by_year_month
   ORDER BY bd.month_grouped_by_year_month DESC
-  LIMIT %s; -- Get the last N months
+  LIMIT %s
 """
 
 GET_CLIENT_NAME_BY_ID = """
