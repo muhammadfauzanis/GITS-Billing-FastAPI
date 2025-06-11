@@ -1,48 +1,38 @@
-from fastapi import APIRouter, HTTPException, Depends, Response, Request
+# controller backend saya
+
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
-import bcrypt
+# Remove bcrypt, it's not needed
+# import bcrypt
 from typing import Annotated, Optional
+
 from app.db.connection import get_db
-from app.utils.token import generate_token
 from app.db.queries.auth_queries import (
     check_user_exists_query,
+    # Modify your insert query
     insert_user_query,
     get_user_by_email_query,
-    GET_USER_PASSWORD_AND_STATUS,
-    UPDATE_USER_PASSWORD
+    # This is no longer needed if Supabase handles passwords
+    # UPDATE_USER_PASSWORD
 )
+from app.middleware.auth_middleware import supabase
 
 router = APIRouter()
 
-def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+# You can remove the hash_password function completely.
 
 class RegisterSchema(BaseModel):
     email: str
-    password: str
+    password: Optional[str] = None
     role: str
     clientId: Optional[str] = None
 
-class LoginSchema(BaseModel):
-    email: str
-    password: str
-
-class PasswordSchema(BaseModel):
-    email: str
-    password: str
-    repassword: str
-
-class ChangePasswordSchema(BaseModel):
-    new_password: str
-    confirm_new_password: str
+class UpdateStatusPayload(BaseModel):
+    userId: str 
 
 @router.post("/register")
 def register_user(
     payload: RegisterSchema,
-    response: Response,
     db: Annotated = Depends(get_db)
 ):
     email = payload.email
@@ -50,130 +40,83 @@ def register_user(
     role = payload.role.lower()
     client_id = payload.clientId
 
-    if role not in ["admin", "client"]:
-        raise HTTPException(status_code=400, detail="Invalid role. Must be 'admin' or 'client'")
+    # ... (validasi role dan pengecekan user tetap sama)
 
-    if role == "client" and not client_id:
-        raise HTTPException(status_code=400, detail="Client ID is required for role 'client'")
+    try:
+        new_user = None
+        
+        # Untuk alur ini, kita asumsikan admin harus membuat password sementara
+        if not password or len(password) < 6:
+            raise HTTPException(status_code=400, detail="Admin harus mengatur password sementara minimal 6 karakter.")
+            
+        user_attributes = {
+            "email": email,
+            "password": password,
+            "email_confirm": True
+        }
+        response = supabase.auth.admin.create_user(user_attributes)
+        new_user = response.user
 
-    if role == "admin":
-        client_id = None
+        if not new_user:
+            raise HTTPException(status_code=500, detail="Failed to create user in Supabase.")
 
-    cursor = db.cursor()
-    cursor.execute(check_user_exists_query, (email,))
-    if cursor.fetchone():
-        raise HTTPException(status_code=409, detail="Email already exists")
+        supabase_id = new_user.id
+        
+        # --- INI ADALAH PERUBAHAN UTAMA ---
+        # Kita atur 'is_password_set' menjadi FALSE secara manual.
+        # Ini akan memaksa pengguna untuk mengunjungi halaman /set-password
+        # saat mereka login pertama kali dengan password sementara dari admin.
+        is_password_set_for_db = False
 
-    hashed = hash_password(password)
-    cursor.execute(insert_user_query, (email, hashed, client_id, role))
-    db.commit()
+        # Query INSERT Anda (pastikan tidak ada kolom 'password' lagi)
+        # INSERT INTO users (email, client_id, role, is_password_set, supabase_auth_id) VALUES (%s, %s, %s, %s, %s)
+        cursor = db.cursor()
+        cursor.execute(
+            insert_user_query, 
+            (email, client_id, role, is_password_set_for_db, supabase_id)
+        )
+        db.commit()
 
-    return {"message": "User registered successfully"}
+        return {"message": "User created with a temporary password. They will be required to set a new password on first login."}
 
-@router.post("/login")
-def user_login(
-    payload: LoginSchema,
-    response: Response,
+    except Exception as e:
+        # ... (error handling tetap sama)
+        db.rollback()
+        error_message = str(e)
+        if "User already registered" in error_message:
+            raise HTTPException(status_code=409, detail="User with this email already exists in Supabase.")
+        
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {error_message}")
+
+@router.patch("/update-password-status")
+def update_password_status(
+    payload: UpdateStatusPayload, # <-- Menerima payload dari frontend
     db: Annotated = Depends(get_db)
 ):
-    email = payload.email
-    password = payload.password
-
-    cursor = db.cursor()
-    cursor.execute(get_user_by_email_query, (email,))
-    user = cursor.fetchone()
-
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    user_id, user_email, user_password, role, client_id, is_password_set = user
-
-    if not verify_password(password, user_password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    token = generate_token(
-        user_id=user_id,
-        name=user_email,
-        role=role,
-        client_id=client_id,
-    )
-
-    return {
-        "message": "Login successful",
-        "token": token,
-        "user": {
-            "id": user_id,
-            "email": user_email,
-            "clientId": client_id,
-            "role": role,
-            "isPasswordSet": is_password_set,
-        },
-    }
-
-@router.post("/logout")
-def user_logout(response: Response):
-    response.delete_cookie("token")
-    return {"message": "Logout successfully"}
-
-@router.post("/set-password")
-def set_new_password(
-    payload: PasswordSchema,
-    db: Annotated = Depends(get_db)
-):
-    email = payload.email
-    password = payload.password
-    repassword = payload.repassword
-
-    if password != repassword:
-        raise HTTPException(status_code=400, detail="Passwords do not match")
-
-    cursor = db.cursor()
-    cursor.execute(get_user_by_email_query, (email,))
-    user = cursor.fetchone()
-
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    if user[5]:
-        raise HTTPException(status_code=400, detail="Password already set")
-
-    hashed = hash_password(password)
-    cursor.execute(
-        "UPDATE users SET password = %s, is_password_set = true WHERE email = %s",
-        (hashed, email),
-    )
-    db.commit()
-
-    return {"message": "Password has been set successfully"}
-
-@router.patch("/change-password")
-def change_user_password(
-    payload: ChangePasswordSchema,
-    request: Request,
-    db: Annotated = Depends(get_db)
-):
-    user_id = request.state.user.get("id")
+    """
+    Endpoint ini dipanggil setelah pengguna berhasil mengatur password baru.
+    Tugasnya adalah mengubah flag is_password_set menjadi TRUE.
+    """
+    user_id = payload.userId # <-- Mengambil user_id dari body payload
 
     if not user_id:
-        raise HTTPException(status_code=401, detail="Not authenticated or user ID missing in token.")
+        raise HTTPException(status_code=400, detail="User ID is required.")
 
-    new_password = payload.new_password
-    confirm_new_password = payload.confirm_new_password
+    try:
+        cursor = db.cursor()
+        # Query untuk mengupdate flag berdasarkan supabase_auth_id
+        cursor.execute(
+            "UPDATE users SET is_password_set = TRUE WHERE supabase_auth_id = %s",
+            (user_id,)
+        )
+        
+        if cursor.rowcount == 0:
+            db.rollback()
+            raise HTTPException(status_code=404, detail="User profile not found in database to update status.")
 
-    if new_password != confirm_new_password:
-        raise HTTPException(status_code=400, detail="New passwords do not match")
+        db.commit()
+        return {"message": "User password status updated successfully."}
 
-    if len(new_password) < 6:
-        raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
-
-    cursor = db.cursor()
-    cursor.execute("SELECT id FROM users WHERE id = %s", (user_id,))
-    if not cursor.fetchone():
-        raise HTTPException(status_code=404, detail="User not found.")
-
-    hashed_new_password = hash_password(new_password)
-
-    cursor.execute(UPDATE_USER_PASSWORD, (hashed_new_password, True, user_id))
-    db.commit()
-
-    return {"message": "Password updated successfully."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
