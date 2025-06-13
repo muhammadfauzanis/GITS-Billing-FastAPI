@@ -99,6 +99,38 @@ GET_CLIENT_NAME_BY_ID = """
   SELECT name FROM clients WHERE id = %s
 """
 
+GET_YEARLY_MONTHLY_TOTALS = """
+  SELECT
+    DATE_TRUNC('month', bd.month_grouped_by_year_month) as month,
+    SUM(bd.agg_value) AS total
+  FROM billing_data bd
+  JOIN projects p ON bd.project_id = p.project_id
+  WHERE p.client_id = %s
+    AND EXTRACT(YEAR FROM bd.month_grouped_by_year_month) = %s
+  GROUP BY month
+  ORDER BY month ASC
+"""
+
+GET_YEARLY_SERVICE_TOTALS = """
+  SELECT 
+    bd.gcp_services, 
+    SUM(bd.agg_value) AS total
+  FROM billing_data bd
+  JOIN projects p ON bd.project_id = p.project_id
+  WHERE p.client_id = %s
+    AND EXTRACT(YEAR FROM bd.month_grouped_by_year_month) = %s
+  GROUP BY bd.gcp_services
+  ORDER BY total DESC
+"""
+
+GET_YEAR_TO_DATE_TOTAL = """
+  SELECT SUM(bd.agg_value) AS total
+  FROM billing_data bd
+  JOIN projects p ON bd.project_id = p.project_id
+  WHERE p.client_id = %s
+    AND EXTRACT(YEAR FROM bd.month_grouped_by_year_month) = %s
+"""
+
 def get_monthly_usage_query(group_by: str, month_count: int) -> str:
     placeholders = ', '.join([f"%s" for _ in range(month_count)])
     return f"""

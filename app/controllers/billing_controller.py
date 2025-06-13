@@ -16,6 +16,9 @@ from app.db.queries.billing_queries import (
     GET_PROJECT_TOTALS_BY_MONTH,
     GET_LAST_N_MONTHS_TOTALS,
     GET_CLIENT_NAME_BY_ID,
+    GET_YEARLY_MONTHLY_TOTALS,
+    GET_YEARLY_SERVICE_TOTALS,
+    GET_YEAR_TO_DATE_TOTAL,
     UPDATE_BILLING_BUDGET,
     get_monthly_usage_query,
 )
@@ -137,41 +140,34 @@ def get_billing_summary_route(
     target_client_id = _get_target_client_id(request, clientId)
 
     now = datetime.now()
+    current_year = now.year
     current_month_date = now.replace(day=1).date()
     last_month_date = (current_month_date - timedelta(days=1)).replace(day=1)
 
     cursor = db.cursor()
+
     cursor.execute(GET_BILLING_TOTAL_CURRENT, (target_client_id, current_month_date))
     current_value = float(cursor.fetchone()[0] or 0)
 
     cursor.execute(GET_BILLING_TOTAL_LAST, (target_client_id, last_month_date))
     last_value = float(cursor.fetchone()[0] or 0)
 
-    num_months_for_projection = 3
-    cursor.execute(GET_LAST_N_MONTHS_TOTALS, (target_client_id, current_month_date, num_months_for_projection))
-    historical_rows = cursor.fetchall()
-    historical_data = [float(row[0]) for row in historical_rows if row[0] is not None]
-
-    percentage_change = 0 if last_value == 0 else ((current_value - last_value) / last_value) * 100
-    days_in_month = (current_month_date.replace(month=current_month_date.month % 12 + 1, day=1) - timedelta(days=1)).day
-    current_day = min(now.day, days_in_month)
-
-    projection = calculate_projection_moving_average(
-        current_value, current_day, days_in_month, historical_data, num_months_for_average=num_months_for_projection
-    )
+    cursor.execute(GET_YEAR_TO_DATE_TOTAL, (target_client_id, current_year))
+    year_to_date_total_raw = float(cursor.fetchone()[0] or 0)
 
     cursor.execute(GET_BILLING_BUDGET, (target_client_id,))
     result = cursor.fetchone()
     db.close()
-    
+
+    percentage_change = 0 if last_value == 0 else ((current_value - last_value) / last_value) * 100
+
     budget_value = float(result[0]) if result and result[0] is not None else 0
-    budget_threshold = int(result[1]) if result and result[1] is not None else 80
     budget_percentage = round((current_value / budget_value) * 100) if budget_value > 0 else 0
 
     return {
         "currentMonth": {"value": format_currency(current_value), "rawValue": current_value, "percentageChange": f"{percentage_change:.1f}"},
         "lastMonth": {"value": format_currency(last_value), "rawValue": last_value, "label": "Periode sebelumnya"},
-        "projection": {"value": format_currency(projection), "rawValue": projection, "label": "Estimasi akhir bulan"},
+        "yearToDateTotal": {"value": format_currency(year_to_date_total_raw), "rawValue": year_to_date_total_raw, "label": f"Total Biaya Tahun {current_year}"},
         "budget": {"value": format_currency(budget_value), "rawValue": budget_value, "percentage": budget_percentage, "label": f"{budget_percentage}% dari budget"}
     }
 
@@ -321,3 +317,57 @@ def get_client_name_from_billing_controller_route(
             return {"name": f"Client (ID: {target_client_id_for_query})"}
     except Exception as e:
         return {"name": default_name}
+    
+@router.get("/yearly-summary")
+def get_yearly_summary_route(
+    request: Request,
+    year: int = Query(default_factory=lambda: datetime.now().year),
+    db: Annotated = Depends(get_db),
+    clientId: Optional[str] = Query(None)
+):
+    target_client_id = _get_target_client_id(request, clientId)
+    
+    cursor = db.cursor()
+
+    # 1. Ambil data total biaya bulanan untuk grafik
+    cursor.execute(GET_YEARLY_MONTHLY_TOTALS, (target_client_id, year))
+    monthly_rows = cursor.fetchall()
+    
+    # Inisialisasi 12 bulan dengan nilai 0
+    monthly_costs_map = {i: 0 for i in range(1, 13)}
+    for row in monthly_rows:
+        month_number = row[0].month
+        monthly_costs_map[month_number] = float(row[1] or 0)
+
+    # Format output agar sesuai dengan kebutuhan frontend
+    monthly_costs = [
+        {"month": datetime(year, month_num, 1).strftime("%B"), "total": total_cost}
+        for month_num, total_cost in monthly_costs_map.items()
+    ]
+
+    # 2. Ambil data total biaya per layanan untuk tabel
+    cursor.execute(GET_YEARLY_SERVICE_TOTALS, (target_client_id, year))
+    service_rows = cursor.fetchall()
+    
+    service_costs = [{
+        "service": row[0],
+        "total": {
+            "value": format_currency(float(row[1] or 0)),
+            "rawValue": float(row[1] or 0)
+        }
+    } for row in service_rows]
+
+    db.close()
+
+    # 3. Hitung grand total dari rincian service
+    grand_total_raw = sum(item["total"]["rawValue"] for item in service_costs)
+
+    return {
+        "year": year,
+        "monthlyCosts": monthly_costs,
+        "serviceCosts": service_costs,
+        "grandTotal": {
+            "value": format_currency(grand_total_raw),
+            "rawValue": grand_total_raw
+        }
+    }
