@@ -43,7 +43,7 @@ def _get_target_client_id(request: Request, provided_client_id: Optional[str]) -
         return str(user_client_id)
 
 @router.get("/projects")
-def get_client_projects_route(
+def get_client_projects(
     request: Request,
     db: Annotated = Depends(get_db),
     clientId: Optional[str] = Query(None)
@@ -73,7 +73,7 @@ def get_client_projects_route(
     return {"projects": [{"id": row[0], "projectId": row[1]} for row in projects]}
 
 @router.get("/breakdown/services")
-def get_overall_service_breakdown_route(
+def get_overall_service_breakdown(
     request: Request,
     month: str = Query(...),
     year: str = Query(default_factory=lambda: str(datetime.now().year)),
@@ -93,10 +93,20 @@ def get_overall_service_breakdown_route(
         "value": format_currency(float(row[1] or 0)),
         "rawValue": float(row[1] or 0)
     } for row in rows]
-    return breakdown
+
+    total = sum(item["rawValue"] for item in breakdown)
+
+    return {
+        "breakdown": breakdown,
+        "total": {
+            "value": format_currency(total),
+            "rawValue": total
+        }
+    }
+
 
 @router.get("/breakdown/{project_id}")
-def get_project_breakdown_route(
+def get_project_breakdown(
     project_id: str,
     request: Request,
     db: Annotated = Depends(get_db),
@@ -132,7 +142,7 @@ def get_project_breakdown_route(
     }
 
 @router.get("/summary")
-def get_billing_summary_route(
+def get_billing_summary(
     request: Request,
     db: Annotated = Depends(get_db),
     clientId: Optional[str] = Query(None)
@@ -172,7 +182,7 @@ def get_billing_summary_route(
     }
 
 @router.get("/project-total")
-def get_project_totals_by_month_route(
+def get_project_totals_by_month(
     request: Request,
     month: int = Query(..., ge=1, le=12),
     year: int = Query(default_factory=lambda: datetime.now().year),
@@ -196,7 +206,7 @@ class BillingSettings(BaseModel):
     budget_threshold: Optional[int] = None
 
 @router.patch("/budget")
-def update_billing_settings_route(
+def update_billing_settings(
     payload: BillingSettings,
     request: Request,
     db: Annotated = Depends(get_db),
@@ -230,7 +240,7 @@ def update_billing_settings_route(
     return {"message": "Billing settings updated successfully"}
 
 @router.get("/budget")
-def get_billing_settings_route(
+def get_billing_settings(
     request: Request,
     db: Annotated = Depends(get_db),
     clientId: Optional[str] = Query(None)
@@ -247,7 +257,7 @@ def get_billing_settings_route(
     return {"budgetValue": float(result[0] or 0), "budgetThreshold": int(result[1] or 0)}
 
 @router.get("/monthly")
-def get_monthly_usage_route(
+def get_monthly_usage(
     request: Request,
     groupBy: str = Query(default="service", pattern="^(service|project)$"),
     months: int = Query(default=6, ge=1, le=24),
@@ -282,7 +292,7 @@ def get_monthly_usage_route(
 
     return {"data": list(grouped.values()), "months": month_labels}
 
-def get_client_name_from_billing_controller_route( 
+def get_client_name_from_billing_controller( 
     request: Request,
     db: Annotated = Depends(get_db),
     clientId: Optional[str] = Query(None)
@@ -319,7 +329,7 @@ def get_client_name_from_billing_controller_route(
         return {"name": default_name}
     
 @router.get("/yearly-summary")
-def get_yearly_summary_route(
+def get_yearly_summary(
     request: Request,
     year: int = Query(default_factory=lambda: datetime.now().year),
     db: Annotated = Depends(get_db),
