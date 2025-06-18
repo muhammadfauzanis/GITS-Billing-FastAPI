@@ -1,42 +1,46 @@
-image: docker:20.10.16
+image: google/cloud-sdk:latest
 
 services:
   - docker:dind
+    variables:
+      DOCKER_TLS_CERTDIR: "" 
+      DOCKER_HOST: tcp://docker:2375
+      DOCKER_SERVICE_TIMEOUT: 60
 
 stages:
   - deploy
 
 variables:
   DOCKER_DRIVER: overlay2
-  DOCKER_TLS_CERTDIR: ''
+  DOCKER_TLS_CERTDIR: "" 
 
 build_and_deploy:
   stage: deploy
   before_script:
-    - apk add --no-cache curl python3 py3-pip
-    - pip3 install --upgrade pip
-    - curl https://sdk.cloud.google.com | bash > /dev/null
-    - source "$HOME/google-cloud-sdk/path.bash.inc"
-    - gcloud --quiet components update
-    - echo "$GCP_SERVICE_ACCOUNT_KEY" > gcp-key.json
-    - gcloud auth activate-service-account --key-file=gcp-key.json
-    - gcloud config set project "$GCP_PROJECT_ID"
-    - gcloud config set compute/region "$GCP_REGION"
+    - echo "Waiting for docker daemon..."
+    - while ! docker info > /dev/null 2>&1; do sleep 1; done
+    - echo "Docker daemon is ready."
+    - docker info
+    
+    - echo $GCP_SERVICE_ACCOUNT_KEY > gcp-key.json
+    - gcloud auth activate-service-account --key-file gcp-key.json
+    - gcloud config set project $GCP_PROJECT_ID
+    - gcloud config set compute/region $GCP_REGION
     - gcloud auth configure-docker
   script:
     - docker build -t gcr.io/$GCP_PROJECT_ID/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA .
     - docker push gcr.io/$GCP_PROJECT_ID/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA
 
     - gcloud run deploy "$CLOUD_RUN_SERVICE_NAME" \
-      --image gcr.io/$GCP_PROJECT_ID/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA \
+     --image gcr.io/$GCP_PROJECT_ID/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA \
       --platform managed \
       --region "$GCP_REGION" \
       --allow-unauthenticated \
-      --set-env-vars DATABASE_URI=$DATABASE_URI,SUPABASE_URL=$SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY,CLIENT_URL=$CLIENT_URL,PORT=$PORT \
+      --set-env-vars DATABASE_URI=$DATABASE_URI,SUPABASE_URL=$SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY,CLIENT_URL=$CLIENT_URL,PORT=$PORT \ 
       --cpu 1 \
       --memory 512Mi \
       --max-instances 1 \
       --min-instances 0 \
-      --port $PORT
+      --port $PORT 
   after_script:
     - rm -f gcp-key.json
