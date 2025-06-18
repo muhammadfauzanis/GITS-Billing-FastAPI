@@ -12,6 +12,9 @@ variables:
   DOCKER_TLS_CERTDIR: ''
 
 before_script:
+  - echo "Waiting for docker daemon..."
+  - while ! docker info > /dev/null 2>&1; do sleep 1; done
+  - echo "Docker daemon is ready."
   - docker info
 
 build_and_deploy:
@@ -40,4 +43,4 @@ build_and_deploy:
       --port 8080
 
   after_script:
-    - rm gcp-key.json
+    - rm -f gcp-key.json
