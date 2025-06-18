@@ -1,18 +1,17 @@
-image: google/cloud-sdk:latest
+image: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
 
 services:
   - name: docker:dind
     variables:
       DOCKER_TLS_CERTDIR: ''
       DOCKER_HOST: tcp://docker:2375
-      DOCKER_SERVICE_TIMEOUT: 60
+
+variables:
+  DOCKER_TLS_CERTDIR: ''
+  DOCKER_DRIVER: overlay2
 
 stages:
   - deploy
-
-variables:
-  DOCKER_DRIVER: overlay2
-  DOCKER_TLS_CERTDIR: ''
 
 build_and_deploy:
   stage: deploy
@@ -20,17 +19,15 @@ build_and_deploy:
     - echo "Waiting for docker daemon..."
     - while ! docker info > /dev/null 2>&1; do sleep 1; done
     - echo "Docker daemon is ready."
-    - docker info
 
-    - echo $GCP_SERVICE_ACCOUNT_KEY > gcp-key.json
+    - echo "$GCP_SERVICE_ACCOUNT_KEY" > gcp-key.json
     - gcloud auth activate-service-account --key-file gcp-key.json
-    - gcloud config set project $GCP_PROJECT_ID
-    - gcloud config set compute/region $GCP_REGION
+    - gcloud config set project "$GCP_PROJECT_ID"
+    - gcloud config set compute/region "$GCP_REGION"
     - gcloud auth configure-docker
   script:
     - docker build -t gcr.io/$GCP_PROJECT_ID/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA .
     - docker push gcr.io/$GCP_PROJECT_ID/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA
-
     - gcloud run deploy "$CLOUD_RUN_SERVICE_NAME" \
       --image gcr.io/$GCP_PROJECT_ID/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA \
       --platform managed \
