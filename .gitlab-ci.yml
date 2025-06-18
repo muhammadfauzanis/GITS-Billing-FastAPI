@@ -23,12 +23,10 @@ build_and_deploy:
     - gcloud config set project $GCP_PROJECT_ID
     - gcloud config set compute/region $GCP_REGION
 
-    # Build Docker image
     - gcloud auth configure-docker
     - docker build -t gcr.io/$GCP_PROJECT_ID/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA .
     - docker push gcr.io/$GCP_PROJECT_ID/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA
 
-    # Deploy to Cloud Run
     - gcloud run deploy $CLOUD_RUN_SERVICE_NAME \
       --image gcr.io/$GCP_PROJECT_ID/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA \
       --platform managed \
