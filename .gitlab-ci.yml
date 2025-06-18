@@ -1,4 +1,4 @@
-image: docker:latest
+image: google/cloud-sdk:alpine
 
 services:
   - docker:dind
@@ -19,12 +19,11 @@ before_script:
 
 build_and_deploy:
   stage: deploy
-  image: google/cloud-sdk:latest
   script:
-    - echo $GCP_SERVICE_ACCOUNT_KEY > gcp-key.json
-    - gcloud auth activate-service-account --key-file gcp-key.json
-    - gcloud config set project $GCP_PROJECT_ID
-    - gcloud config set compute/region $GCP_REGION
+    - echo "$GCP_SERVICE_ACCOUNT_KEY" > gcp-key.json
+    - gcloud auth activate-service-account --key-file=gcp-key.json
+    - gcloud config set project "$GCP_PROJECT_ID"
+    - gcloud config set compute/region "$GCP_REGION"
 
     - gcloud auth configure-docker
     - docker build -t gcr.io/$GCP_PROJECT_ID/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA .
