@@ -1,43 +1,31 @@
-image: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+image: google/cloud-sdk:latest
 
 services:
   - name: docker:dind
     variables:
       DOCKER_TLS_CERTDIR: ''
-      DOCKER_HOST: tcp://docker:2375
-
-variables:
-  DOCKER_TLS_CERTDIR: ''
-  DOCKER_DRIVER: overlay2
 
 stages:
   - deploy
 
-build_and_deploy:
-  stage: deploy
-  before_script:
-    - echo "Waiting for docker daemon..."
-    - while ! docker info > /dev/null 2>&1; do sleep 1; done
-    - echo "Docker daemon is ready."
+variables:
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ''
+  IMAGE: gcr.io/$GCP_PROJECT_ID/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA
 
-    - echo "$GCP_SERVICE_ACCOUNT_KEY" > gcp-key.json
-    - gcloud auth activate-service-account --key-file gcp-key.json
-    - gcloud config set project "$GCP_PROJECT_ID"
-    - gcloud config set compute/region "$GCP_REGION"
-    - gcloud auth configure-docker
+before_script:
+  - echo "$GCP_SERVICE_ACCOUNT_KEY" > gcp-key.json
+  - gcloud auth activate-service-account --key-file gcp-key.json
+  - gcloud config set project $GCP_PROJECT_ID
+  - gcloud auth configure-docker
+
+deploy:
+  stage: deploy
   script:
-    - docker build -t gcr.io/$GCP_PROJECT_ID/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA .
-    - docker push gcr.io/$GCP_PROJECT_ID/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA
-    - gcloud run deploy "$CLOUD_RUN_SERVICE_NAME" \
-      --image gcr.io/$GCP_PROJECT_ID/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA \
+    - docker build -t $IMAGE .
+    - docker push $IMAGE
+    - gcloud run deploy $CLOUD_RUN_SERVICE_NAME \
+      --image $IMAGE \
+      --region $GCP_REGION \
       --platform managed \
-      --region "$GCP_REGION" \
-      --allow-unauthenticated \
-      --set-env-vars DATABASE_URI=$DATABASE_URI,SUPABASE_URL=$SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY,CLIENT_URL=$CLIENT_URL,PORT=$PORT \
-      --cpu 1 \
-      --memory 512Mi \
-      --max-instances 1 \
-      --min-instances 0 \
-      --port $PORT
-  after_script:
-    - rm -f gcp-key.json
+      --allow-unauthenticated
