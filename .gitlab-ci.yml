@@ -4,13 +4,12 @@ services:
   - docker:dind
 
 variables:
+  DOCKER_HOST: tcp://docker:2375
   DOCKER_DRIVER: overlay2
   DOCKER_TLS_CERTDIR: ''
   REGION: us-central1
-  GCP_PROJECT_ID: gits-gcp-billing
-  ARTIFACT_REPO: gits-billing-fastapi
-  SERVICE_NAME: gits-billing-api
-  IMAGE: us-central1-docker.pkg.dev/$GCP_PROJECT_ID/$ARTIFACT_REPO/$SERVICE_NAME:$CI_COMMIT_SHORT_SHA
+  REPO_NAME: gits-billing-fastapi
+  IMAGE: $REGION-docker.pkg.dev/$GCP_PROJECT_ID/$REPO_NAME/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA
 
 stages:
   - deploy
@@ -19,18 +18,15 @@ before_script:
   - echo "$GCP_SERVICE_ACCOUNT_KEY" > gcp-key.json
   - gcloud auth activate-service-account --key-file gcp-key.json
   - gcloud config set project $GCP_PROJECT_ID
-  - gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
+  - gcloud auth configure-docker $REGION-docker.pkg.dev
 
-deploy_to_cloud_run:
+deploy:
   stage: deploy
   script:
-    - docker build -t $IMAGE -t us-central1-docker.pkg.dev/$GCP_PROJECT_ID/$ARTIFACT_REPO/$SERVICE_NAME:latest .
-
+    - docker build -t $IMAGE .
     - docker push $IMAGE
-    - docker push us-central1-docker.pkg.dev/$GCP_PROJECT_ID/$ARTIFACT_REPO/$SERVICE_NAME:latest
-
-    - gcloud run deploy $SERVICE_NAME \
-      --image us-central1-docker.pkg.dev/$GCP_PROJECT_ID/$ARTIFACT_REPO/$SERVICE_NAME:latest \
+    - gcloud run deploy $CLOUD_RUN_SERVICE_NAME \
+      --image $IMAGE \
       --platform managed \
       --region $REGION \
       --allow-unauthenticated
