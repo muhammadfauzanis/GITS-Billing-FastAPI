@@ -23,10 +23,7 @@ before_script:
 deploy:
   stage: deploy
   script:
-    - docker build -t $IMAGE .
+    - docker build -t $IMAGE -t $REGION-docker.pkg.dev/$GCP_PROJECT_ID/$REPO_NAME/$CLOUD_RUN_SERVICE_NAME:latest .
     - docker push $IMAGE
-    - gcloud run deploy $CLOUD_RUN_SERVICE_NAME \
-      --image $IMAGE \
-      --platform managed \
-      --region $REGION \
-      --allow-unauthenticated
+    - docker push $REGION-docker.pkg.dev/$GCP_PROJECT_ID/$REPO_NAME/$CLOUD_RUN_SERVICE_NAME:latest
+    - gcloud run deploy "$CLOUD_RUN_SERVICE_NAME" --image "$IMAGE" --platform managed --region "$REGION" --allow-unauthenticated
