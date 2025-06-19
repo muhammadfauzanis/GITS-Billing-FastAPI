@@ -7,8 +7,8 @@ variables:
   DOCKER_HOST: tcp://docker:2375
   DOCKER_DRIVER: overlay2
   DOCKER_TLS_CERTDIR: ''
-  REGION: asia-southeast2
-  REPO_NAME: fastapi-backend-repo
+  REGION: us-central1
+  REPO_NAME: gits-billing-fastapi
   IMAGE: $REGION-docker.pkg.dev/$GCP_PROJECT_ID/$REPO_NAME/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA
 
 stages:
