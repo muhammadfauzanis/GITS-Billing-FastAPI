@@ -1,21 +1,23 @@
-image: google/cloud-sdk:latest
+image: docker:latest
 
 services:
-  - name: docker:dind
-    variables:
-      DOCKER_TLS_CERTDIR: ''
+  - docker:dind
+
+variables:
+  DOCKER_HOST: tcp://docker:2375/
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ''
 
 stages:
   - deploy
 
-variables:
-  DOCKER_DRIVER: overlay2
-  DOCKER_TLS_CERTDIR: ''
-  IMAGE: gcr.io/$GCP_PROJECT_ID/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA
-
 before_script:
+  - apk add --no-cache python3 py3-pip
+  - pip install --no-cache-dir gcloud
   - echo "$GCP_SERVICE_ACCOUNT_KEY" > gcp-key.json
-  - gcloud auth activate-service-account --key-file gcp-key.json
+  - curl https://sdk.cloud.google.com | bash
+  - source $HOME/google-cloud-sdk/path.bash.inc
+  - gcloud auth activate-service-account --key-file=gcp-key.json
   - gcloud config set project $GCP_PROJECT_ID
   - gcloud auth configure-docker
 
