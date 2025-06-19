@@ -23,7 +23,16 @@ before_script:
 deploy:
   stage: deploy
   script:
-    - docker build -t $IMAGE -t $REGION-docker.pkg.dev/$GCP_PROJECT_ID/$REPO_NAME/$CLOUD_RUN_SERVICE_NAME:latest .
-    - docker push $IMAGE
-    - docker push $REGION-docker.pkg.dev/$GCP_PROJECT_ID/$REPO_NAME/$CLOUD_RUN_SERVICE_NAME:latest
-    - gcloud run deploy "$CLOUD_RUN_SERVICE_NAME" --image "$IMAGE" --platform managed --region "$REGION" --allow-unauthenticated
+    - echo "$GCP_SERVICE_ACCOUNT_KEY" > key.json
+    - gcloud auth activate-service-account --key-file=key.json
+    - gcloud config set project $GCP_PROJECT_ID
+    - gcloud config set run/region $GCP_REGION
+    - gcloud run deploy $CLOUD_RUN_SERVICE_NAME \
+      --source . \
+      --platform managed \
+      --allow-unauthenticated \
+      --region $GCP_REGION
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev-fauzan"'
+      when: always
+    - when: never
