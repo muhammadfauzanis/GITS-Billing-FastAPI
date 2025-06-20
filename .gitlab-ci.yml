@@ -23,7 +23,16 @@ before_script:
 deploy:
   stage: deploy
   script:
-    - docker build -t $IMAGE -t $REGION-docker.pkg.dev/$GCP_PROJECT_ID/$REPO_NAME/$CLOUD_RUN_SERVICE_NAME:latest .
+    - docker build -t $IMAGE .
     - docker push $IMAGE
-    - docker push $REGION-docker.pkg.dev/$GCP_PROJECT_ID/$REPO_NAME/$CLOUD_RUN_SERVICE_NAME:latest
-    - gcloud run deploy "$CLOUD_RUN_SERVICE_NAME" --image "$IMAGE" --platform managed --region "$REGION" --allow-unauthenticated
+    - |
+      gcloud run deploy $CLOUD_RUN_SERVICE_NAME \
+        --image=$IMAGE \
+        --platform=managed \
+        --region=$REGION \
+        --allow-unauthenticated \
+        --port=8000
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev-fauzan"'
+      when: always
+    - when: never
