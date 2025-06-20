@@ -33,6 +33,6 @@ deploy:
         --allow-unauthenticated \
         --port=8000
   rules:
-    - if: '$CI_COMMIT_BRANCH == "dev-fauzan"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
       when: always
     - when: never
