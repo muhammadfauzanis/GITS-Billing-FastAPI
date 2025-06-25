@@ -19,6 +19,8 @@ before_script:
 
 deploy:
   stage: deploy
+  tags:
+    - gits-shell
   only:
     - production
   script:
