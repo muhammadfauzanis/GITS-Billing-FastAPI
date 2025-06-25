@@ -1,0 +1,40 @@
+image: google/cloud-sdk:slim
+
+services:
+  - docker:dind
+
+variables:
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ''
+  REGION: asia-southeast2
+  REPO_NAME: gits-billing-fastapi
+  IMAGE: $REGION-docker.pkg.dev/$GCP_PROJECT_ID/$REPO_NAME/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA
+
+stages:
+  - deploy
+
+before_script:
+  - echo "$GCP_SERVICE_ACCOUNT_KEY" > gcp-key.json
+  - gcloud auth activate-service-account --key-file gcp-key.json
+  - gcloud config set project $GCP_PROJECT_ID
+  - gcloud auth configure-docker $REGION-docker.pkg.dev
+
+deploy:
+  stage: deploy
+  only:
+    - production
+  script:
+    - docker build -t $IMAGE .
+    - docker push $IMAGE
+    - |
+      gcloud run deploy $CLOUD_RUN_SERVICE_NAME \
+        --image=$IMAGE \
+        --platform=managed \
+        --region=$REGION \
+        --allow-unauthenticated \
+        --port=8000
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "production"'
+      when: always
+    - when: never
