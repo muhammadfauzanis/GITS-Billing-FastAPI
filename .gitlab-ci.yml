@@ -23,7 +23,7 @@ before_script:
 deploy:
   stage: deploy
   tags:
-    - gits-runner
+    - gits-docker
   only:
     - main
   script:
