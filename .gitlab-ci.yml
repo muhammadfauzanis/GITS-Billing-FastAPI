@@ -25,7 +25,7 @@ deploy:
   only:
     - main
   script:
-   - |
+    - |
       if ! gcloud artifacts repositories describe $REPO_NAME --location=$REGION > /dev/null 2>&1; then
         echo "Creating Artifact Registry $REPO_NAME"
         gcloud artifacts repositories create $REPO_NAME \
