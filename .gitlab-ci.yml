@@ -22,7 +22,7 @@ deploy:
   tags:
     - gits-docker
   only:
-    - main
+    - production
   script:
     - docker buildx build --platform linux/amd64 -t $IMAGE --push .
     - gcloud run deploy $CLOUD_RUN_SERVICE_NAME \
