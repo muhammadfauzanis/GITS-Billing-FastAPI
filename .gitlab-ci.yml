@@ -23,7 +23,7 @@ before_script:
 deploy:
   stage: deploy
   only:
-    - production
+    - main
   script:
     - docker build -t $IMAGE .
     - docker push $IMAGE
@@ -35,6 +35,6 @@ deploy:
         --allow-unauthenticated \
         --port=8000
   rules:
-    - if: '$CI_COMMIT_BRANCH == "production"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
       when: always
     - when: never
