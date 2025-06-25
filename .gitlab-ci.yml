@@ -22,9 +22,21 @@ before_script:
 
 deploy:
   stage: deploy
+  tags:
+    - gits-docker
   only:
-    - production
+    - main
   script:
+    - |
+      if ! gcloud artifacts repositories describe $REPO_NAME --location=$REGION > /dev/null 2>&1; then
+        echo "Creating Artifact Registry $REPO_NAME"
+        gcloud artifacts repositories create $REPO_NAME \
+          --repository-format=docker \
+          --location=$REGION \
+          --description="Auto-created from GitLab CI"
+      else
+        echo "Artifact Registry $REPO_NAME already exists"
+      fi
     - docker build -t $IMAGE .
     - docker push $IMAGE
     - |
@@ -34,7 +46,3 @@ deploy:
         --region=$REGION \
         --allow-unauthenticated \
         --port=8000
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "production"'
-      when: always
-    - when: never
