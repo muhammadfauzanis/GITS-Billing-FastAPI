@@ -1,12 +1,6 @@
 image: google/cloud-sdk:slim
 
-services:
-  - docker:dind
-
 variables:
-  DOCKER_HOST: tcp://docker:2375
-  DOCKER_DRIVER: overlay2
-  DOCKER_TLS_CERTDIR: ''
   REGION: asia-southeast2
   REPO_NAME: gits-billing-fastapi
   IMAGE: $REGION-docker.pkg.dev/$GCP_PROJECT_ID/$REPO_NAME/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA
@@ -20,19 +14,20 @@ before_script:
   - gcloud config set project $GCP_PROJECT_ID
   - gcloud auth configure-docker $REGION-docker.pkg.dev
 
+  - apt-get update && apt-get install -y docker.io
+  - docker buildx create --use
+
 deploy:
   stage: deploy
   tags:
     - gits-docker
   only:
-    - main
+    - production
   script:
-    - docker build -t $IMAGE .
-    - docker push $IMAGE
-    - |
-      gcloud run deploy $CLOUD_RUN_SERVICE_NAME \
-        --image=$IMAGE \
-        --platform=managed \
-        --region=$REGION \
-        --allow-unauthenticated \
-        --port=8000
+    - docker buildx build --platform linux/amd64 -t $IMAGE --push .
+    - gcloud run deploy $CLOUD_RUN_SERVICE_NAME \
+      --image=$IMAGE \
+      --platform=managed \
+      --region=$REGION \
+      --allow-unauthenticated \
+      --port=8000
