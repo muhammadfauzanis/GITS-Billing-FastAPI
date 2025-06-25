@@ -22,6 +22,8 @@ before_script:
 
 deploy:
   stage: deploy
+  tags:
+    - gits-docker
   only:
     - main
   script:
