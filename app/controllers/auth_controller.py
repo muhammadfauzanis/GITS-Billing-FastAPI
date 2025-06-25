@@ -121,7 +121,7 @@ def update_password_status(
     request: Request, 
     db: Annotated = Depends(get_db)
 ):
-    user_id = request.state.user.get("sub") 
+    user_id = request.state.user.get("id") 
 
     if not user_id:
         raise HTTPException(status_code=401, detail="Authentication token is invalid or missing user ID.")
@@ -129,7 +129,7 @@ def update_password_status(
     try:
         cursor = db.cursor()
         cursor.execute(
-            "UPDATE users SET is_password_set = TRUE WHERE supabase_auth_id = %s",
+            "UPDATE users SET is_password_set = TRUE WHERE id = %s",
             (user_id,)
         )
         
