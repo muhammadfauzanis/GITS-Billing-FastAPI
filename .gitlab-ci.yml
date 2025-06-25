@@ -23,7 +23,7 @@ before_script:
 deploy:
   stage: deploy
   only:
-    - main
+    - production
   script:
     - docker build -t $IMAGE .
     - docker push $IMAGE
