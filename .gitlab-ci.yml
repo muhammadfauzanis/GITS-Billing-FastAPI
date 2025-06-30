@@ -21,6 +21,8 @@ deploy:
   only:
     - production
   script:
+    - docker build -t $IMAGE .
+    - docker push $IMAGE
     - |
       gcloud run deploy $CLOUD_RUN_SERVICE_NAME \
         --image=$IMAGE \
