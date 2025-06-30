@@ -21,12 +21,11 @@ deploy:
   only:
     - production
   script:
-    - docker build -t $IMAGE .
-    - docker push $IMAGE
-    - gcloud run deploy $CLOUD_RUN_SERVICE_NAME \
-      --image=$IMAGE \
-      --platform=managed \
-      --region=$REGION \
-      --allow-unauthenticated \
-      --port=8000 \
-      --set-env-vars "SUPABASE_URL=$SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY,SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET,DATABASE_URI=$DATABASE_URI,CLIENT_URL=$CLIENT_URL"
+    - |
+      gcloud run deploy $CLOUD_RUN_SERVICE_NAME \
+        --image=$IMAGE \
+        --platform=managed \
+        --region=$REGION \
+        --allow-unauthenticated \
+        --port=8000 \
+        --set-env-vars "SUPABASE_URL=$SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY,SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET,DATABASE_URI=$DATABASE_URI,CLIENT_URL=$CLIENT_URL"
