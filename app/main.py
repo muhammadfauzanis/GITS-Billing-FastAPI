@@ -11,12 +11,12 @@ load_dotenv()
 
 CLIENT_URL = os.getenv("CLIENT_URL")
 
-allow_origins = ['http://localhost:3000']
+# allow_origins = ['http://localhost:3000']
 
 middleware = [
     Middleware(
         CORSMiddleware,
-        allow_origins=allow_origins,
+        allow_origins=[CLIENT_URL],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

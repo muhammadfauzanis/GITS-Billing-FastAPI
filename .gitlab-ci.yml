@@ -1,12 +1,6 @@
 image: google/cloud-sdk:slim
 
-services:
-  - docker:dind
-
 variables:
-  DOCKER_HOST: tcp://docker:2375
-  DOCKER_DRIVER: overlay2
-  DOCKER_TLS_CERTDIR: ''
   REGION: asia-southeast2
   REPO_NAME: gits-billing-fastapi
   IMAGE: $REGION-docker.pkg.dev/$GCP_PROJECT_ID/$REPO_NAME/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA
@@ -23,20 +17,10 @@ before_script:
 deploy:
   stage: deploy
   tags:
-    - gits-docker
+    - gits-shell
   only:
-    - main
+    - production
   script:
-    - |
-      if ! gcloud artifacts repositories describe $REPO_NAME --location=$REGION > /dev/null 2>&1; then
-        echo "Creating Artifact Registry $REPO_NAME"
-        gcloud artifacts repositories create $REPO_NAME \
-          --repository-format=docker \
-          --location=$REGION \
-          --description="Auto-created from GitLab CI"
-      else
-        echo "Artifact Registry $REPO_NAME already exists"
-      fi
     - docker build -t $IMAGE .
     - docker push $IMAGE
     - |
@@ -45,4 +29,5 @@ deploy:
         --platform=managed \
         --region=$REGION \
         --allow-unauthenticated \
-        --port=8000
+        --port=8000 \
+        --set-env-vars "SUPABASE_URL=$SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY,SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET,DATABASE_URI=$DATABASE_URI,CLIENT_URL=$CLIENT_URL"
