@@ -48,3 +48,47 @@ def group_by(array: list[dict], key: str) -> dict[str, list[dict]]:
             result[group_key] = []
         result[group_key].append(item)
     return result
+
+def format_usage(usage: float, unit: str) -> str:
+    """
+    Buat format usage sku biar kaya di GCP
+    """
+    if usage is None:
+        usage = 0.0
+
+    unit = unit.lower()
+
+    if "byte-seconds" in unit:
+        # Konversi byte-seconds ke gibibyte-hours, unit yang umum untuk storage-time
+        # 1 GiB = 1024^3 bytes, 1 hour = 3600 seconds
+        gibibyte_hours = usage / (1024**3 * 3600)
+        return f"{gibibyte_hours:,.2f} gibibyte hour"
+    
+    if "seconds" in unit:
+        if usage >= 3600:
+            hours = usage / 3600
+            return f"{hours:,.2f} hour"
+        elif usage >= 60:
+            minutes = usage / 60
+            return f"{minutes:,.2f} minute"
+        return f"{usage:,.2f} second"
+
+    if "bytes" in unit:
+        if usage >= 1024**4:
+            terabytes = usage / 1024**4
+            return f"{terabytes:,.2f} TiB"
+        elif usage >= 1024**3:
+            gigabytes = usage / 1024**3
+            return f"{gigabytes:,.2f} GiB"
+        elif usage >= 1024**2:
+            megabytes = usage / 1024**2
+            return f"{megabytes:,.2f} MiB"
+        elif usage >= 1024:
+            kilobytes = usage / 1024
+            return f"{kilobytes:,.2f} KiB"
+        return f"{usage:,.0f} bytes"
+
+    if "requests" in unit:
+        return f"{usage:,.0f} requests"
+
+    return f"{usage:,.2f} {unit}"

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel
 
 from app.db.connection import get_db
-from app.utils.helpers import format_currency, calculate_projection_moving_average
+from app.utils.helpers import format_currency
 from app.db.queries.billing_queries import (
     GET_CLIENT_PROJECTS,
     GET_PROJECT_BREAKDOWN,
@@ -14,12 +14,10 @@ from app.db.queries.billing_queries import (
     GET_BILLING_TOTAL_LAST,
     GET_BILLING_BUDGET,
     GET_PROJECT_TOTALS_BY_MONTH,
-    GET_LAST_N_MONTHS_TOTALS,
     GET_CLIENT_NAME_BY_ID,
     GET_YEARLY_MONTHLY_TOTALS,
     GET_YEARLY_SERVICE_TOTALS,
     GET_YEAR_TO_DATE_TOTAL,
-    UPDATE_BILLING_BUDGET,
     get_monthly_usage_query,
 )
 
@@ -339,23 +337,19 @@ def get_yearly_summary(
     
     cursor = db.cursor()
 
-    # 1. Ambil data total biaya bulanan untuk grafik
     cursor.execute(GET_YEARLY_MONTHLY_TOTALS, (target_client_id, year))
     monthly_rows = cursor.fetchall()
     
-    # Inisialisasi 12 bulan dengan nilai 0
     monthly_costs_map = {i: 0 for i in range(1, 13)}
     for row in monthly_rows:
         month_number = row[0].month
         monthly_costs_map[month_number] = float(row[1] or 0)
 
-    # Format output agar sesuai dengan kebutuhan frontend
     monthly_costs = [
         {"month": datetime(year, month_num, 1).strftime("%B"), "total": total_cost}
         for month_num, total_cost in monthly_costs_map.items()
     ]
 
-    # 2. Ambil data total biaya per layanan untuk tabel
     cursor.execute(GET_YEARLY_SERVICE_TOTALS, (target_client_id, year))
     service_rows = cursor.fetchall()
     
@@ -369,7 +363,6 @@ def get_yearly_summary(
 
     db.close()
 
-    # 3. Hitung grand total dari rincian service
     grand_total_raw = sum(item["total"]["rawValue"] for item in service_costs)
 
     return {

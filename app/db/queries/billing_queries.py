@@ -131,6 +131,107 @@ GET_YEAR_TO_DATE_TOTAL = """
     AND EXTRACT(YEAR FROM bd.month_grouped_by_year_month) = %s
 """
 
+GET_DAILY_COSTS_FOR_DATE_RANGE = """
+    SELECT
+        bd.usage_date,
+        SUM(bd.cost_before_discount) AS daily_total
+    FROM billing_data_daily bd
+    JOIN projects p ON bd.project_id = p.project_id
+    WHERE p.client_id = %s
+      AND bd.usage_date >= %s
+      AND bd.usage_date <= %s
+    GROUP BY bd.usage_date
+    ORDER BY bd.usage_date ASC;
+"""
+
+GET_MONTHLY_TOTAL_AGG_VALUE = """
+    SELECT SUM(bd.agg_value) AS total
+    FROM billing_data bd
+    JOIN projects p ON bd.project_id = p.project_id
+    WHERE p.client_id = %s
+      AND bd.month_grouped_by_year_month = %s;
+"""
+
+GET_DAILY_COSTS_BREAKDOWN_FOR_DATE_RANGE = """
+    SELECT
+        bd.usage_date,
+        bd.gcp_services,
+        SUM(bd.cost_before_discount) AS daily_service_total
+    FROM billing_data_daily bd
+    JOIN projects p ON bd.project_id = p.project_id
+    WHERE p.client_id = %s
+      AND bd.usage_date >= %s
+      AND bd.usage_date <= %s
+    GROUP BY bd.usage_date, bd.gcp_services
+    ORDER BY bd.usage_date, daily_service_total DESC;
+"""
+
+GET_PROJECT_BREAKDOWN_FOR_DATE_RANGE = """
+    SELECT
+        bd.project_id,
+        SUM(bd.cost_before_discount) as total_raw_cost
+    FROM billing_data_daily bd
+    JOIN projects p ON bd.project_id = p.project_id
+    WHERE p.client_id = %s
+      AND bd.usage_date >= %s
+      AND bd.usage_date <= %s
+    GROUP BY bd.project_id
+    ORDER BY total_raw_cost DESC;
+"""
+
+GET_MONTHLY_TOTAL_RAW_COST = """
+    SELECT SUM(bd.cost_before_discount) AS total
+    FROM billing_data_daily bd
+    JOIN projects p ON bd.project_id = p.project_id
+    WHERE p.client_id = %s
+      AND DATE_TRUNC('month', bd.usage_date) = %s;
+"""
+
+GET_DAILY_COSTS_PROJECT_BREAKDOWN_FOR_DATE_RANGE = """
+    SELECT
+        bd.usage_date,
+        bd.project_id,
+        SUM(bd.cost_before_discount) AS daily_project_total
+    FROM billing_data_daily bd
+    JOIN projects p ON bd.project_id = p.project_id
+    WHERE p.client_id = %s
+      AND bd.usage_date >= %s
+      AND bd.usage_date <= %s
+    GROUP BY bd.usage_date, bd.project_id
+    ORDER BY bd.usage_date, daily_project_total DESC;
+"""
+
+GET_SKU_USAGE_TREND_FOR_DATE_RANGE = """
+    SELECT
+        s.usage_date,
+        s.sku_description,
+        SUM(s.usage) as total_usage
+    FROM sku_usage_data s
+    WHERE s.client_id = %s
+      AND s.usage_date >= %s
+      AND s.usage_date <= %s
+    GROUP BY s.usage_date, s.sku_description
+    ORDER BY s.usage_date, total_usage DESC;
+"""
+
+GET_SKU_USAGE_TABLE_FOR_DATE_RANGE = """
+    SELECT
+        s.sku_description,
+        s.gcp_services,
+        s.sku_id,
+        s.usage_unit,
+        SUM(s.usage) as total_usage,
+        SUM(s.cost_before_discount) as total_cost,
+        SUM(s.discount_total) as total_discount,
+        SUM(s.promotion) as total_promotion
+    FROM sku_usage_data s
+    WHERE s.client_id = %s
+      AND s.usage_date >= %s
+      AND s.usage_date <= %s
+    GROUP BY s.sku_description, s.gcp_services, s.sku_id, s.usage_unit
+    ORDER BY total_cost DESC;
+"""
+
 def get_monthly_usage_query(group_by: str, month_count: int) -> str:
     placeholders = ', '.join([f"%s" for _ in range(month_count)])
     return f"""
