@@ -1,16 +1,17 @@
 from fastapi import APIRouter, Request, HTTPException, Depends, Query
 from typing import Annotated, Optional
 from datetime import datetime, timedelta
+import calendar
 
 from app.db.connection import get_db
-from app.utils.helpers import format_currency
-from app.controllers.billing_controller import _get_target_client_id
-from app.db.queries.billing_queries import (
-    GET_MONTHLY_TOTAL_AGG_VALUE,
+from app.utils.helpers import format_currency, _get_target_client_id
+from app.db.queries.billing_daily_queries import (
     GET_DAILY_COSTS_BREAKDOWN_FOR_DATE_RANGE,
-    GET_MONTHLY_TOTAL_RAW_COST,
-    GET_DAILY_COSTS_PROJECT_BREAKDOWN_FOR_DATE_RANGE
+    GET_DAILY_COSTS_PROJECT_BREAKDOWN_FOR_DATE_RANGE,
+    GET_SERVICE_BREAKDOWN_FOR_DATE_RANGE
 )
+
+from app.db.queries.billing_queries import GET_MONTHLY_TOTAL_AGG_VALUE 
 
 router = APIRouter()
 
@@ -25,18 +26,18 @@ def get_daily_service_breakdown(
     target_client_id = _get_target_client_id(request, clientId)
     
     start_date = datetime(year, month, 1).date()
-    next_month = start_date.replace(day=28) + timedelta(days=4)
-    end_date = next_month - timedelta(days=next_month.day)
+    _, num_days_in_month = calendar.monthrange(year, month)
+    end_date = datetime(year, month, num_days_in_month).date()
+    
     month_start_for_agg_query = start_date.strftime("%Y-%m-01")
 
     cursor = db.cursor()
-
-    cursor.execute(GET_DAILY_COSTS_BREAKDOWN_FOR_DATE_RANGE, (target_client_id, start_date, end_date))
+    cursor.execute(GET_DAILY_COSTS_BREAKDOWN_FOR_DATE_RANGE, (int(target_client_id), start_date, end_date))
     daily_raw_breakdown = cursor.fetchall()
     
     total_raw_from_daily = sum(float(row[2] or 0) for row in daily_raw_breakdown)
 
-    cursor.execute(GET_MONTHLY_TOTAL_AGG_VALUE, (target_client_id, month_start_for_agg_query))
+    cursor.execute(GET_MONTHLY_TOTAL_AGG_VALUE, (int(target_client_id), month_start_for_agg_query))
     monthly_agg_total_row = cursor.fetchone()
     monthly_agg_total = float(monthly_agg_total_row[0] or 0)
     db.close()
@@ -45,21 +46,22 @@ def get_daily_service_breakdown(
     if total_raw_from_daily > 0 and monthly_agg_total > 0:
         discount_factor = monthly_agg_total / total_raw_from_daily
 
-    all_days_in_month = [start_date + timedelta(days=i) for i in range((end_date - start_date).days + 1)]
-    
+    all_days_in_month = [start_date + timedelta(days=i) for i in range(num_days_in_month)]
     breakdown_map = {day.strftime("%Y-%m-%d"): {"services": [], "total": 0.0} for day in all_days_in_month}
     
-    all_services = sorted(list(set(row[1] for row in daily_raw_breakdown)))
-
     for row in daily_raw_breakdown:
         usage_date_str, service_name, raw_cost = row[0].strftime("%Y-%m-%d"), row[1], float(row[2] or 0)
         approximated_cost = raw_cost * discount_factor
         
         if usage_date_str in breakdown_map:
-            breakdown_map[usage_date_str]["services"].append({"service": service_name, "cost": approximated_cost})
+            breakdown_map[usage_date_str]["services"].append({
+                "service": service_name, 
+                "cost": approximated_cost
+            })
             breakdown_map[usage_date_str]["total"] += approximated_cost
 
     formatted_result = [{"date": date, **data} for date, data in breakdown_map.items()]
+    all_services = sorted(list(set(row[1] for row in daily_raw_breakdown)))
 
     return {"dailyBreakdown": formatted_result, "services": all_services}
 
@@ -111,3 +113,39 @@ def get_daily_project_breakdown(
     ]
 
     return {"projectTrend": formatted_result, "days": all_days}
+
+@router.get("/daily/total/service-breakdown")
+def get_month_to_date_service_breakdown(
+    request: Request,
+    db: Annotated = Depends(get_db),
+    clientId: Optional[str] = Query(None)
+):
+    target_client_id = _get_target_client_id(request, clientId)
+    
+    today = datetime.now().date()
+    start_date = today.replace(day=1)
+    end_date = today
+
+    cursor = db.cursor()
+    cursor.execute(GET_SERVICE_BREAKDOWN_FOR_DATE_RANGE, (int(target_client_id), start_date, end_date))
+    rows = cursor.fetchall()
+    db.close()
+
+    breakdown = []
+    for row in rows:
+        service, cost, discount, promo = row
+        cost_float = float(cost or 0)
+        discount_float = float(discount or 0)
+        promo_float = float(promo or 0)
+        subtotal = cost_float - discount_float - promo_float
+        
+        breakdown.append({
+            "service": service,
+            "cost": format_currency(cost_float),
+            "discounts": format_currency(discount_float),
+            "promotions": format_currency(promo_float),
+            "subtotal": format_currency(subtotal),
+            "rawSubtotal": subtotal
+        })
+
+    return {"breakdown": breakdown}

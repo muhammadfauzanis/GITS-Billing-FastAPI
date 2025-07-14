@@ -1,4 +1,6 @@
 import locale
+from fastapi import Request, HTTPException
+from typing import Optional
 
 try:
     locale.setlocale(locale.LC_ALL, 'id_ID.UTF-8')
@@ -48,6 +50,23 @@ def group_by(array: list[dict], key: str) -> dict[str, list[dict]]:
             result[group_key] = []
         result[group_key].append(item)
     return result
+
+def _get_target_client_id(request: Request, provided_client_id: Optional[str]) -> str:
+    user_details = request.state.user
+    user_role = user_details.get("role")
+    user_client_id = user_details.get("clientId")
+
+    if user_role == "admin":
+        if provided_client_id:
+            return provided_client_id
+        else:
+            raise HTTPException(status_code=400, detail="Admin must specify a clientId for this operation.")
+    else: # Role 'client'
+        if not user_client_id:
+            raise HTTPException(status_code=401, detail="Unauthorized: Client ID not found in token.")
+        if provided_client_id and provided_client_id != str(user_client_id):
+            raise HTTPException(status_code=403, detail="Forbidden: Clients can only access their own data.")
+        return str(user_client_id)
 
 def format_usage(usage: float, unit: str) -> str:
     """

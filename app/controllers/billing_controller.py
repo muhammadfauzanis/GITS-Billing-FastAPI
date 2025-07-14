@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel
 
 from app.db.connection import get_db
-from app.utils.helpers import format_currency
+from app.utils.helpers import format_currency, _get_target_client_id
 from app.db.queries.billing_queries import (
     GET_CLIENT_PROJECTS,
     GET_PROJECT_BREAKDOWN,
@@ -22,23 +22,6 @@ from app.db.queries.billing_queries import (
 )
 
 router = APIRouter()
-
-def _get_target_client_id(request: Request, provided_client_id: Optional[str]) -> str:
-    user_details = request.state.user
-    user_role = user_details.get("role")
-    user_client_id = user_details.get("clientId")
-
-    if user_role == "admin":
-        if provided_client_id:
-            return provided_client_id
-        else:
-            raise HTTPException(status_code=400, detail="Admin must specify a clientId for this operation.")
-    else: # Role 'client'
-        if not user_client_id:
-            raise HTTPException(status_code=401, detail="Unauthorized: Client ID not found in token.")
-        if provided_client_id and provided_client_id != str(user_client_id):
-            raise HTTPException(status_code=403, detail="Forbidden: Clients can only access their own data.")
-        return str(user_client_id)
 
 @router.get("/projects")
 def get_client_projects(
