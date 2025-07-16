@@ -1,65 +1,72 @@
-from fastapi import APIRouter, Request, HTTPException, Depends, Query
+from fastapi import APIRouter, Request, Depends, Query
 from typing import Annotated, Optional
 from datetime import datetime, timedelta
+import calendar
+import math
 
 from app.db.connection import get_db
 from app.utils.helpers import format_currency, format_usage, _get_target_client_id
 from app.db.queries.billing_sku_queries import (
-    GET_SKU_USAGE_TREND_FOR_DATE_RANGE,
-    GET_SKU_USAGE_TABLE_FOR_DATE_RANGE,
+    GET_SKU_COST_TREND_TOP_N,
+    GET_SKU_BREAKDOWN_ALL
 )
 
 router = APIRouter()
 
 @router.get("/trend")
-def get_daily_sku_trend(
+def get_daily_sku_cost_trend(
     request: Request,
     month: int = Query(..., ge=1, le=12),
     year: int = Query(default_factory=lambda: datetime.now().year),
+    top_n: int = Query(10, ge=3, le=20),
     db: Annotated = Depends(get_db),
     clientId: Optional[str] = Query(None)
 ):
-    target_client_id_str = _get_target_client_id(request, clientId)
+    target_client_id = _get_target_client_id(request, clientId)
     start_date = datetime(year, month, 1).date()
-    next_month = start_date.replace(day=28) + timedelta(days=4)
-    end_date = next_month - timedelta(days=next_month.day)
+    _, num_days_in_month = calendar.monthrange(year, month)
+    end_date = datetime(year, month, num_days_in_month).date()
 
     cursor = db.cursor()
-    # --- PERBAIKAN: Ubah ke integer saat eksekusi kueri ---
-    cursor.execute(GET_SKU_USAGE_TREND_FOR_DATE_RANGE, (int(target_client_id_str), start_date, end_date))
+    params = (int(target_client_id), start_date, end_date, top_n, int(target_client_id), start_date, end_date)
+    cursor.execute(GET_SKU_COST_TREND_TOP_N, params)
     rows = cursor.fetchall()
     db.close()
 
     sku_map = {}
-    all_days = [(start_date + timedelta(days=i)).strftime("%Y-%m-%d") for i in range((end_date - start_date).days + 1)]
+    all_days = [(start_date + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(num_days_in_month)]
     all_skus = sorted(list(set(row[1] for row in rows)))
 
     for row in rows:
-        usage_date_str, sku_desc, total_usage = row[0].strftime("%Y-%m-%d"), row[1], float(row[2] or 0)
+        usage_date_str, sku_desc, total_cost = row[0].strftime("%Y-%m-%d"), row[1], float(row[2] or 0)
         if sku_desc not in sku_map:
             sku_map[sku_desc] = {day: 0.0 for day in all_days}
-        sku_map[sku_desc][usage_date_str] += total_usage
+        if usage_date_str in sku_map[sku_desc]:
+            sku_map[sku_desc][usage_date_str] += total_cost
     
-    formatted_result = [{"sku": sku, "daily_usage": usage_data} for sku, usage_data in sku_map.items()]
+    formatted_result = [{"sku": sku, "daily_costs": cost_data} for sku, cost_data in sku_map.items()]
 
-    return {"skuTrend": formatted_result, "days": all_days, "skus": all_skus}
-    
+    return {"skuCostTrend": formatted_result, "days": all_days, "skus": all_skus}
 
 @router.get("/breakdown")
-def get_daily_sku_breakdown(
+def get_sku_breakdown_table(
     request: Request,
     month: int = Query(..., ge=1, le=12),
     year: int = Query(default_factory=lambda: datetime.now().year),
     db: Annotated = Depends(get_db),
     clientId: Optional[str] = Query(None)
 ):
-    target_client_id_str = _get_target_client_id(request, clientId)
+    """
+    Menyediakan data untuk tabel rincian SKU tanpa paginasi.
+    """
+    target_client_id = _get_target_client_id(request, clientId)
     start_date = datetime(year, month, 1).date()
-    next_month = start_date.replace(day=28) + timedelta(days=4)
-    end_date = next_month - timedelta(days=next_month.day)
-
+    _, num_days_in_month = calendar.monthrange(year, month)
+    end_date = datetime(year, month, num_days_in_month).date()
+    
     cursor = db.cursor()
-    cursor.execute(GET_SKU_USAGE_TABLE_FOR_DATE_RANGE, (int(target_client_id_str), start_date, end_date))
+    params = (int(target_client_id), start_date, end_date)
+    cursor.execute(GET_SKU_BREAKDOWN_ALL, params) # Menggunakan kueri baru
     rows = cursor.fetchall()
     db.close()
 
@@ -80,4 +87,4 @@ def get_daily_sku_breakdown(
             "rawSubtotal": subtotal
         })
 
-    return {"breakdown": breakdown}
+    return {"data": breakdown}

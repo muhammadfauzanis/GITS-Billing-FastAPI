@@ -28,3 +28,45 @@ GET_SKU_USAGE_TABLE_FOR_DATE_RANGE = """
     GROUP BY s.sku_description, s.gcp_services, s.sku_id, s.usage_unit
     ORDER BY total_cost DESC;
 """
+
+# Kueri untuk mengambil tren biaya harian dari N SKU teratas
+GET_SKU_COST_TREND_TOP_N = """
+WITH ranked_skus AS (
+  SELECT
+    sku_description
+  FROM sku_usage_data
+  WHERE client_id = %s
+    AND usage_date >= %s AND usage_date <= %s
+  GROUP BY sku_description
+  ORDER BY SUM(cost_before_discount) DESC
+  LIMIT %s -- Ambil hanya N teratas
+)
+SELECT
+  s.usage_date,
+  s.sku_description,
+  SUM(s.cost_before_discount) as daily_cost
+FROM sku_usage_data s
+INNER JOIN ranked_skus rs ON s.sku_description = rs.sku_description
+WHERE s.client_id = %s
+  AND s.usage_date >= %s AND s.usage_date <= %s
+GROUP BY s.usage_date, s.sku_description
+ORDER BY s.usage_date, daily_cost DESC;
+"""
+
+# Kueri untuk mengambil semua data tabel rincian SKU (tanpa paginasi)
+GET_SKU_BREAKDOWN_ALL = """
+  SELECT
+    s.sku_description,
+    s.gcp_services,
+    s.sku_id,
+    s.usage_unit,
+    SUM(s.usage) as total_usage,
+    SUM(COALESCE(s.cost_before_discount, 0)) as total_cost,
+    SUM(COALESCE(s.reseller_margin, 0)) as total_discount,
+    SUM(COALESCE(s.promotion, 0)) as total_promotion
+  FROM sku_usage_data s
+  WHERE s.client_id = %s
+    AND s.usage_date >= %s AND s.usage_date <= %s
+  GROUP BY s.sku_description, s.gcp_services, s.sku_id, s.usage_unit
+  ORDER BY total_cost DESC;
+"""
