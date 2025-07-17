@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Request, Depends, Query
+from fastapi import APIRouter, Request, Depends, Query, HTTPException, status
 from typing import Annotated, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import calendar
 import math
 
@@ -13,28 +13,63 @@ from app.db.queries.billing_sku_queries import (
 
 router = APIRouter()
 
+# RE-USED HELPER (bisa juga diletakkan di file terpisah misal: app/utils/dependencies.py)
+def _get_validated_date_range(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    month: Optional[int] = None,
+    year: Optional[int] = None,
+    max_days: int = 31
+) -> tuple[date, date]:
+    """Helper function to validate and determine the date range."""
+    if start_date and end_date:
+        if (end_date - start_date).days >= max_days:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Custom date range cannot exceed {max_days} days."
+            )
+        return start_date, end_date
+    
+    if month and year:
+        final_start_date = date(year, month, 1)
+        _, num_days_in_month = calendar.monthrange(year, month)
+        final_end_date = date(year, month, num_days_in_month)
+        return final_start_date, final_end_date
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="You must provide either 'month' and 'year', or 'start_date' and 'end_date'."
+    )
+
+
 @router.get("/trend")
 def get_daily_sku_cost_trend(
     request: Request,
-    month: int = Query(..., ge=1, le=12),
-    year: int = Query(default_factory=lambda: datetime.now().year),
     top_n: int = Query(10, ge=3, le=20),
     db: Annotated = Depends(get_db),
-    clientId: Optional[str] = Query(None)
+    clientId: Optional[str] = Query(None),
+    # MODIFIED: Parameters are now optional
+    month: Optional[int] = Query(None, ge=1, le=12),
+    year: Optional[int] = Query(None),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None)
 ):
     target_client_id = _get_target_client_id(request, clientId)
-    start_date = datetime(year, month, 1).date()
-    _, num_days_in_month = calendar.monthrange(year, month)
-    end_date = datetime(year, month, num_days_in_month).date()
+    
+    # NEW: Use helper to get validated date range
+    final_start_date, final_end_date = _get_validated_date_range(start_date, end_date, month, year)
 
     cursor = db.cursor()
-    params = (int(target_client_id), start_date, end_date, top_n, int(target_client_id), start_date, end_date)
+    # MODIFIED: The query parameters are now dynamic based on the determined date range
+    params = (int(target_client_id), final_start_date, final_end_date, top_n, int(target_client_id), final_start_date, final_end_date)
     cursor.execute(GET_SKU_COST_TREND_TOP_N, params)
     rows = cursor.fetchall()
     db.close()
 
     sku_map = {}
-    all_days = [(start_date + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(num_days_in_month)]
+    # MODIFIED: Generate all days based on the final determined range
+    num_days_in_range = (final_end_date - final_start_date).days + 1
+    all_days = [(final_start_date + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(num_days_in_range)]
     all_skus = sorted(list(set(row[1] for row in rows)))
 
     for row in rows:
@@ -51,22 +86,21 @@ def get_daily_sku_cost_trend(
 @router.get("/breakdown")
 def get_sku_breakdown_table(
     request: Request,
-    month: int = Query(..., ge=1, le=12),
-    year: int = Query(default_factory=lambda: datetime.now().year),
     db: Annotated = Depends(get_db),
-    clientId: Optional[str] = Query(None)
+    clientId: Optional[str] = Query(None),
+    month: Optional[int] = Query(None, ge=1, le=12),
+    year: Optional[int] = Query(None),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None)
 ):
-    """
-    Menyediakan data untuk tabel rincian SKU tanpa paginasi.
-    """
     target_client_id = _get_target_client_id(request, clientId)
-    start_date = datetime(year, month, 1).date()
-    _, num_days_in_month = calendar.monthrange(year, month)
-    end_date = datetime(year, month, num_days_in_month).date()
+    
+    # NEW: Use helper to get validated date range
+    final_start_date, final_end_date = _get_validated_date_range(start_date, end_date, month, year)
     
     cursor = db.cursor()
-    params = (int(target_client_id), start_date, end_date)
-    cursor.execute(GET_SKU_BREAKDOWN_ALL, params) # Menggunakan kueri baru
+    params = (int(target_client_id), final_start_date, final_end_date)
+    cursor.execute(GET_SKU_BREAKDOWN_ALL, params)
     rows = cursor.fetchall()
     db.close()
 
