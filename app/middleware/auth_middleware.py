@@ -8,14 +8,13 @@ from starlette.responses import Response
 from fastapi import status, HTTPException
 from supabase import create_client, Client
 
-# Impor koneksi database Anda
 from app.db.connection import get_db
 
 load_dotenv()
 
-# Inisialisasi Klien Supabase
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
 
 if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
     raise Exception("Supabase URL and Service Key must be set in .env file")
@@ -24,7 +23,11 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # Path publik tidak memerlukan otentikasi
+        # Cek api key buat generate pdf di n8n
+        api_key_header = request.headers.get("X-API-Key")
+        if api_key_header and api_key_header == INTERNAL_API_KEY:
+            return await call_next(request)
+        
         public_paths = ["/api/auth/login", "/api/auth/register", "/docs", "/openapi.json", "/redoc"]
         if any(request.url.path.startswith(path) for path in public_paths):
             return await call_next(request)
@@ -43,19 +46,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
         token = auth_header.split(" ")[1]
         db_conn = None
         try:
-            # 1. Verifikasi token menggunakan Supabase
             user_response = supabase.auth.get_user(token)
             supabase_user = user_response.user
             
             if not supabase_user:
                 raise HTTPException(status_code=403, detail="Invalid or expired token")
 
-            # 2. Ambil detail pengguna (role, clientId) dari database Anda
-            # Middleware tidak mendukung Depends(), jadi kita buat koneksi manual
             db_conn = get_db()
             cursor = db_conn.cursor()
             
-            # Gunakan email dari token Supabase untuk mencari user di tabel 'users' Anda
             cursor.execute(
                 "SELECT id, role, client_id FROM users WHERE email = %s", 
                 (supabase_user.email,)
@@ -67,7 +66,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
             user_id, user_role, user_client_id = app_user
 
-            # 3. Tetapkan state pengguna seperti sebelumnya
             request.state.user = {
                 "id": user_id,
                 "username": supabase_user.email,
@@ -89,7 +87,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 media_type="application/json"
             )
         finally:
-            # Pastikan koneksi database selalu ditutup
             if db_conn:
                 db_conn.close()
 

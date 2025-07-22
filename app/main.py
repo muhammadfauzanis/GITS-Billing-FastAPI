@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware import Middleware
 
-from app.routes import auth_routes, billing_routes, user_routes, admin_routes,notification_routes
+from app.routes import auth_routes, billing_routes, user_routes, admin_routes,notification_routes, invoice_routes
 from app.middleware.auth_middleware import AuthMiddleware
 
 load_dotenv()
@@ -39,3 +39,4 @@ app.include_router(user_routes.router)
 app.include_router(billing_routes.router)
 app.include_router(admin_routes.router)
 app.include_router(notification_routes.router) 
+app.include_router(invoice_routes.router) 

@@ -35,4 +35,3 @@ def get_client_name(
         raise HTTPException(status_code=404, detail="Client not found")
 
     return {"clientId": target_client_id, "name": result[0]}
-
