@@ -1,6 +1,8 @@
 import locale
-from fastapi import Request, HTTPException
+from fastapi import Request, HTTPException, status
 from typing import Optional
+from datetime import date, datetime
+import calendar
 
 try:
     locale.setlocale(locale.LC_ALL, 'id_ID.UTF-8')
@@ -111,3 +113,48 @@ def format_usage(usage: float, unit: str) -> str:
         return f"{usage:,.0f} requests"
 
     return f"{usage:,.2f} {unit}"
+
+def get_validated_date_range(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    month: Optional[int] = None,
+    year: Optional[int] = None,
+    max_days: int = 31
+) -> tuple[date, date]:
+    """
+    Memvalidasi dan menentukan rentang tanggal berdasarkan parameter yang diberikan.
+    - Prioritas 1: start_date dan end_date.
+    - Prioritas 2: month dan year.
+    - Default: Bulan kalender berjalan jika tidak ada parameter yang diberikan.
+    """
+    # Prioritas 1: Rentang tanggal kustom
+    if start_date and end_date:
+        if (end_date - start_date).days >= max_days:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Rentang tanggal kustom tidak boleh melebihi {max_days} hari."
+            )
+        if start_date > end_date:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tanggal mulai tidak boleh setelah tanggal selesai.")
+        return start_date, end_date
+    
+    # Prioritas 2: Bulan dan Tahun
+    current_year = datetime.now().year
+    if month and not year:
+        year = current_year
+        
+    if month and year:
+        try:
+            start_of_month = date(year, month, 1)
+            _, num_days_in_month = calendar.monthrange(year, month)
+            end_of_month = date(year, month, num_days_in_month)
+            return start_of_month, end_of_month
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bulan atau tahun yang diberikan tidak valid.")
+
+    # Prioritas 3 (Default): Bulan kalender saat ini
+    today = datetime.now().date()
+    start_of_current_month = today.replace(day=1)
+    _, last_day_of_current_month = calendar.monthrange(today.year, today.month)
+    end_of_current_month = today.replace(day=last_day_of_current_month)
+    return start_of_current_month, end_of_current_month

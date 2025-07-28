@@ -85,3 +85,16 @@ GET_SERVICE_BREAKDOWN_FOR_DATE_RANGE = """
     GROUP BY s.gcp_services
     ORDER BY total_cost DESC;
 """
+
+GET_DAILY_SERVICE_BREAKDOWN_PER_PROJECT = """
+  SELECT
+    DATE(usage_date) as day,
+    gcp_services,
+    SUM(cost_before_discount) as total
+  FROM billing_data_daily
+  WHERE project_id = %s
+    AND client_id = %s 
+    AND usage_date BETWEEN %s AND %s
+  GROUP BY day, gcp_services
+  ORDER BY day, total DESC
+"""

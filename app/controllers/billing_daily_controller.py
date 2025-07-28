@@ -4,59 +4,29 @@ from datetime import datetime, timedelta, date
 import calendar
 
 from app.db.connection import get_db
-from app.utils.helpers import format_currency, _get_target_client_id
+from app.utils.helpers import _get_target_client_id, format_currency, get_validated_date_range 
 from app.db.queries.billing_daily_queries import (
     GET_DAILY_COSTS_BREAKDOWN_FOR_DATE_RANGE,
     GET_DAILY_COSTS_PROJECT_BREAKDOWN_FOR_DATE_RANGE,
-    GET_SERVICE_BREAKDOWN_FOR_DATE_RANGE
+    GET_SERVICE_BREAKDOWN_FOR_DATE_RANGE,
+    GET_DAILY_SERVICE_BREAKDOWN_PER_PROJECT
 )
 from app.db.queries.billing_queries import GET_MONTHLY_TOTAL_AGG_VALUE
 
 router = APIRouter()
-
-def _get_validated_date_range(
-    start_date: Optional[date] = None,
-    end_date: Optional[date] = None,
-    month: Optional[int] = None,
-    year: Optional[int] = None,
-    max_days: int = 31
-) -> tuple[date, date]:
-    """Helper function to validate and determine the date range."""
-    if start_date and end_date:
-        if (end_date - start_date).days >= max_days:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Custom date range cannot exceed {max_days} days."
-            )
-        return start_date, end_date
-    
-    if month and year:
-        final_start_date = date(year, month, 1)
-        _, num_days_in_month = calendar.monthrange(year, month)
-        final_end_date = date(year, month, num_days_in_month)
-        return final_start_date, final_end_date
-
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="You must provide either 'month' and 'year', or 'start_date' and 'end_date'."
-    )
-
 
 @router.get("/daily/service-breakdown")
 def get_daily_service_breakdown(
     request: Request,
     db: Annotated = Depends(get_db),
     clientId: Optional[str] = Query(None),
-    # MODIFIED: Parameters are now optional to allow for custom date ranges
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None),
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None)
 ):
     target_client_id = _get_target_client_id(request, clientId)
-    
-    # NEW: Use helper to get validated date range
-    final_start_date, final_end_date = _get_validated_date_range(start_date, end_date, month, year)
+    final_start_date, final_end_date = get_validated_date_range(start_date, end_date, month, year)
     
     cursor = db.cursor()
     cursor.execute(GET_DAILY_COSTS_BREAKDOWN_FOR_DATE_RANGE, (int(target_client_id), final_start_date, final_end_date))
@@ -64,9 +34,8 @@ def get_daily_service_breakdown(
     
     total_raw_from_daily = sum(float(row[2] or 0) for row in daily_raw_breakdown)
 
-    # MODIFIED: Discount factor is only calculated for full month view
     discount_factor = 1.0
-    if month and year: # Only calculate if it's a monthly view
+    if month and year:
         month_start_for_agg_query = final_start_date.strftime("%Y-%m-01")
         cursor.execute(GET_MONTHLY_TOTAL_AGG_VALUE, (int(target_client_id), month_start_for_agg_query))
         monthly_agg_total_row = cursor.fetchone()
@@ -76,7 +45,6 @@ def get_daily_service_breakdown(
     
     db.close()
 
-    # MODIFIED: Generate all days based on the final determined range
     num_days_in_range = (final_end_date - final_start_date).days + 1
     all_days_in_range = [final_start_date + timedelta(days=i) for i in range(num_days_in_range)]
     breakdown_map = {day.strftime("%Y-%m-%d"): {"services": [], "total": 0.0} for day in all_days_in_range}
@@ -103,16 +71,13 @@ def get_daily_project_breakdown(
     request: Request,
     db: Annotated = Depends(get_db),
     clientId: Optional[str] = Query(None),
-    # MODIFIED: Parameters are now optional
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None),
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None)
 ):
     target_client_id = _get_target_client_id(request, clientId)
-    
-    # NEW: Use helper to get validated date range
-    final_start_date, final_end_date = _get_validated_date_range(start_date, end_date, month, year)
+    final_start_date, final_end_date = get_validated_date_range(start_date, end_date, month, year)
 
     cursor = db.cursor()
     cursor.execute(GET_DAILY_COSTS_PROJECT_BREAKDOWN_FOR_DATE_RANGE, (target_client_id, final_start_date, final_end_date))
@@ -120,9 +85,8 @@ def get_daily_project_breakdown(
     
     total_raw_from_daily = sum(float(row[2] or 0) for row in daily_raw_breakdown)
 
-    # MODIFIED: Discount factor is only calculated for full month view
     discount_factor = 1.0
-    if month and year: # Only calculate if it's a monthly view
+    if month and year:
         month_start_for_agg_query = final_start_date.strftime("%Y-%m-01")
         cursor.execute(GET_MONTHLY_TOTAL_AGG_VALUE, (target_client_id, month_start_for_agg_query))
         monthly_agg_total_row = cursor.fetchone()
@@ -133,7 +97,6 @@ def get_daily_project_breakdown(
     db.close()
 
     projects_map = {}
-    # MODIFIED: Generate all days based on the final determined range
     num_days_in_range = (final_end_date - final_start_date).days + 1
     all_days = [ (final_start_date + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(num_days_in_range) ]
 
@@ -160,26 +123,13 @@ def get_month_to_date_service_breakdown(
     request: Request,
     db: Annotated = Depends(get_db),
     clientId: Optional[str] = Query(None),
-    # MODIFIED: Added optional date parameters for flexibility
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None),
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None)
 ):
     target_client_id = _get_target_client_id(request, clientId)
-    
-    # NEW: Flexible date logic
-    if start_date and end_date:
-        final_start_date, final_end_date = start_date, end_date
-    elif month and year:
-        final_start_date = date(year, month, 1)
-        _, num_days_in_month = calendar.monthrange(year, month)
-        final_end_date = date(year, month, num_days_in_month)
-    else:
-        # Default behavior: current month-to-date
-        today = datetime.now().date()
-        final_start_date = today.replace(day=1)
-        final_end_date = today
+    final_start_date, final_end_date = get_validated_date_range(start_date, end_date, month, year)
 
     cursor = db.cursor()
     cursor.execute(GET_SERVICE_BREAKDOWN_FOR_DATE_RANGE, (int(target_client_id), final_start_date, final_end_date))
@@ -204,3 +154,63 @@ def get_month_to_date_service_breakdown(
         })
 
     return {"breakdown": breakdown}
+
+@router.get("/daily/services-breakdown/project/{project_id}")
+def get_daily_service_breakdown_for_project(
+    project_id: str,
+    request: Request,
+    db: Annotated = Depends(get_db),
+    clientId: Optional[str] = Query(None),
+    month: Optional[int] = Query(None, ge=1, le=12),
+    year: Optional[int] = Query(None),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None)
+):
+    target_client_id = _get_target_client_id(request, clientId)
+    final_start_date, final_end_date = get_validated_date_range(start_date, end_date, month, year)
+
+    cursor = db.cursor()
+    params = (project_id, target_client_id, final_start_date, final_end_date)
+    cursor.execute(GET_DAILY_SERVICE_BREAKDOWN_PER_PROJECT, params)
+    rows = cursor.fetchall()
+    db.close()
+    
+    daily_breakdown = {}
+    num_days_in_range = (final_end_date - final_start_date).days + 1
+    all_days = [(final_start_date + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(num_days_in_range)]
+
+    for day_str in all_days:
+        daily_breakdown[day_str] = {
+            "date": day_str,
+            "services": [],
+            "total_daily_raw": 0.0
+        }
+
+    total_cost = 0.0
+    for day_raw, service_name, cost_raw in rows:
+        day_str = day_raw.strftime("%Y-%m-%d")
+        cost = float(cost_raw or 0)
+        
+        if day_str in daily_breakdown:
+            daily_breakdown[day_str]["services"].append({
+                "service": service_name,
+                "value": format_currency(cost),
+                "rawValue": cost
+            })
+            daily_breakdown[day_str]["total_daily_raw"] += cost
+            total_cost += cost
+
+
+    for day_data in daily_breakdown.values():
+        day_data["total_daily_formatted"] = format_currency(day_data["total_daily_raw"])
+
+    return {
+        "project_id": project_id,
+        "start_date": final_start_date.strftime("%Y-%m-%d"),
+        "end_date": final_end_date.strftime("%Y-%m-%d"),
+        "daily_breakdown": sorted(list(daily_breakdown.values()), key=lambda x: x['date']),
+        "grand_total": {
+            "value": format_currency(total_cost),
+            "rawValue": total_cost
+        }
+    }
