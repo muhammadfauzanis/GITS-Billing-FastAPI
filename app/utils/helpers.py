@@ -1,4 +1,8 @@
 import locale
+from fastapi import Request, HTTPException, status
+from typing import Optional
+from datetime import date, datetime
+import calendar
 
 try:
     locale.setlocale(locale.LC_ALL, 'id_ID.UTF-8')
@@ -48,3 +52,109 @@ def group_by(array: list[dict], key: str) -> dict[str, list[dict]]:
             result[group_key] = []
         result[group_key].append(item)
     return result
+
+def _get_target_client_id(request: Request, provided_client_id: Optional[str]) -> str:
+    user_details = request.state.user
+    user_role = user_details.get("role")
+    user_client_id = user_details.get("clientId")
+
+    if user_role == "admin":
+        if provided_client_id:
+            return provided_client_id
+        else:
+            raise HTTPException(status_code=400, detail="Admin must specify a clientId for this operation.")
+    else: # Role 'client'
+        if not user_client_id:
+            raise HTTPException(status_code=401, detail="Unauthorized: Client ID not found in token.")
+        if provided_client_id and provided_client_id != str(user_client_id):
+            raise HTTPException(status_code=403, detail="Forbidden: Clients can only access their own data.")
+        return str(user_client_id)
+
+def format_usage(usage: float, unit: str) -> str:
+    """
+    Buat format usage sku biar kaya di GCP
+    """
+    if usage is None:
+        usage = 0.0
+
+    unit = unit.lower()
+
+    if "byte-seconds" in unit:
+        # Konversi byte-seconds ke gibibyte-hours, unit yang umum untuk storage-time
+        # 1 GiB = 1024^3 bytes, 1 hour = 3600 seconds
+        gibibyte_hours = usage / (1024**3 * 3600)
+        return f"{gibibyte_hours:,.2f} gibibyte hour"
+    
+    if "seconds" in unit:
+        if usage >= 3600:
+            hours = usage / 3600
+            return f"{hours:,.2f} hour"
+        elif usage >= 60:
+            minutes = usage / 60
+            return f"{minutes:,.2f} minute"
+        return f"{usage:,.2f} second"
+
+    if "bytes" in unit:
+        if usage >= 1024**4:
+            terabytes = usage / 1024**4
+            return f"{terabytes:,.2f} TiB"
+        elif usage >= 1024**3:
+            gigabytes = usage / 1024**3
+            return f"{gigabytes:,.2f} GiB"
+        elif usage >= 1024**2:
+            megabytes = usage / 1024**2
+            return f"{megabytes:,.2f} MiB"
+        elif usage >= 1024:
+            kilobytes = usage / 1024
+            return f"{kilobytes:,.2f} KiB"
+        return f"{usage:,.0f} bytes"
+
+    if "requests" in unit:
+        return f"{usage:,.0f} requests"
+
+    return f"{usage:,.2f} {unit}"
+
+def get_validated_date_range(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    month: Optional[int] = None,
+    year: Optional[int] = None,
+    max_days: int = 31
+) -> tuple[date, date]:
+    """
+    Memvalidasi dan menentukan rentang tanggal berdasarkan parameter yang diberikan.
+    - Prioritas 1: start_date dan end_date.
+    - Prioritas 2: month dan year.
+    - Default: Bulan kalender berjalan jika tidak ada parameter yang diberikan.
+    """
+    # Prioritas 1: Rentang tanggal kustom
+    if start_date and end_date:
+        if (end_date - start_date).days >= max_days:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Rentang tanggal kustom tidak boleh melebihi {max_days} hari."
+            )
+        if start_date > end_date:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tanggal mulai tidak boleh setelah tanggal selesai.")
+        return start_date, end_date
+    
+    # Prioritas 2: Bulan dan Tahun
+    current_year = datetime.now().year
+    if month and not year:
+        year = current_year
+        
+    if month and year:
+        try:
+            start_of_month = date(year, month, 1)
+            _, num_days_in_month = calendar.monthrange(year, month)
+            end_of_month = date(year, month, num_days_in_month)
+            return start_of_month, end_of_month
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bulan atau tahun yang diberikan tidak valid.")
+
+    # Prioritas 3 (Default): Bulan kalender saat ini
+    today = datetime.now().date()
+    start_of_current_month = today.replace(day=1)
+    _, last_day_of_current_month = calendar.monthrange(today.year, today.month)
+    end_of_current_month = today.replace(day=last_day_of_current_month)
+    return start_of_current_month, end_of_current_month

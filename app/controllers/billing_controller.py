@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Request, HTTPException, Depends, Query
-from typing import Annotated, Optional
+from typing import Annotated, Optional,List
 from datetime import datetime, timedelta
 from pydantic import BaseModel
 
 from app.db.connection import get_db
-from app.utils.helpers import format_currency, calculate_projection_moving_average
+from app.utils.helpers import format_currency, _get_target_client_id
 from app.db.queries.billing_queries import (
     GET_CLIENT_PROJECTS,
     GET_PROJECT_BREAKDOWN,
@@ -14,33 +14,21 @@ from app.db.queries.billing_queries import (
     GET_BILLING_TOTAL_LAST,
     GET_BILLING_BUDGET,
     GET_PROJECT_TOTALS_BY_MONTH,
-    GET_LAST_N_MONTHS_TOTALS,
     GET_CLIENT_NAME_BY_ID,
     GET_YEARLY_MONTHLY_TOTALS,
     GET_YEARLY_SERVICE_TOTALS,
     GET_YEAR_TO_DATE_TOTAL,
-    UPDATE_BILLING_BUDGET,
     get_monthly_usage_query,
+    GET_BILLING_BUDGET_VALUE,
+    UPDATE_BUDGET_SETTINGS
 )
 
 router = APIRouter()
 
-def _get_target_client_id(request: Request, provided_client_id: Optional[str]) -> str:
-    user_details = request.state.user
-    user_role = user_details.get("role")
-    user_client_id = user_details.get("clientId")
-
-    if user_role == "admin":
-        if provided_client_id:
-            return provided_client_id
-        else:
-            raise HTTPException(status_code=400, detail="Admin must specify a clientId for this operation.")
-    else: # Role 'client'
-        if not user_client_id:
-            raise HTTPException(status_code=401, detail="Unauthorized: Client ID not found in token.")
-        if provided_client_id and provided_client_id != str(user_client_id):
-            raise HTTPException(status_code=403, detail="Forbidden: Clients can only access their own data.")
-        return str(user_client_id)
+class BudgetSettingsSchema(BaseModel):
+    budget_value: float
+    alert_thresholds: List[int]  
+    alert_emails: List[str]  
 
 @router.get("/projects")
 def get_client_projects(
@@ -148,39 +136,40 @@ def get_billing_summary(
     clientId: Optional[str] = Query(None)
 ):
     target_client_id = _get_target_client_id(request, clientId)
-
+    
     now = datetime.now()
     current_year = now.year
     current_month_date = now.replace(day=1).date()
     last_month_date = (current_month_date - timedelta(days=1)).replace(day=1)
 
     cursor = db.cursor()
-
+    
+    # Ambil data pengeluaran (tidak berubah)
     cursor.execute(GET_BILLING_TOTAL_CURRENT, (target_client_id, current_month_date))
     current_value = float(cursor.fetchone()[0] or 0)
-
+    
     cursor.execute(GET_BILLING_TOTAL_LAST, (target_client_id, last_month_date))
     last_value = float(cursor.fetchone()[0] or 0)
-
+    
     cursor.execute(GET_YEAR_TO_DATE_TOTAL, (target_client_id, current_year))
     year_to_date_total_raw = float(cursor.fetchone()[0] or 0)
 
-    cursor.execute(GET_BILLING_BUDGET, (target_client_id,))
+    cursor.execute(GET_BILLING_BUDGET_VALUE, (target_client_id,))
     result = cursor.fetchone()
     db.close()
 
     percentage_change = 0 if last_value == 0 else ((current_value - last_value) / last_value) * 100
-
     budget_value = float(result[0]) if result and result[0] is not None else 0
+    
     budget_percentage = round((current_value / budget_value) * 100) if budget_value > 0 else 0
+    label = f"{budget_percentage}% dari budget"
 
     return {
         "currentMonth": {"value": format_currency(current_value), "rawValue": current_value, "percentageChange": f"{percentage_change:.1f}"},
         "lastMonth": {"value": format_currency(last_value), "rawValue": last_value, "label": "Periode sebelumnya"},
         "yearToDateTotal": {"value": format_currency(year_to_date_total_raw), "rawValue": year_to_date_total_raw, "label": f"Total Biaya Tahun {current_year}"},
-        "budget": {"value": format_currency(budget_value), "rawValue": budget_value, "percentage": budget_percentage, "label": f"{budget_percentage}% dari budget"}
+        "budget": {"value": format_currency(budget_value), "rawValue": budget_value, "percentage": budget_percentage, "label": label}
     }
-
 @router.get("/project-total")
 def get_project_totals_by_month(
     request: Request,
@@ -201,60 +190,48 @@ def get_project_totals_by_month(
     total = sum(item["rawValue"] for item in breakdown)
     return {"breakdown": breakdown, "total": {"value": format_currency(total), "rawValue": total}}
 
-class BillingSettings(BaseModel):
-    budget_value: Optional[float] = None
-    budget_threshold: Optional[int] = None
-
-@router.patch("/budget")
-def update_billing_settings(
-    payload: BillingSettings,
+@router.post("/budget-settings") 
+def update_budget_settings(
+    payload: BudgetSettingsSchema,
     request: Request,
     db: Annotated = Depends(get_db),
     clientId: Optional[str] = Query(None)
 ):
+    print("Received payload:", payload)  # DEBUG
     target_client_id = _get_target_client_id(request, clientId)
-
-    if payload.budget_value is None and payload.budget_threshold is None:
-        raise HTTPException(status_code=400, detail="At least one field (budget_value or budget_threshold) must be provided")
-
-    updates = []
-    values = []
-
-    if payload.budget_value is not None:
-        updates.append("budget_value = %s")
-        values.append(payload.budget_value)
-    if payload.budget_threshold is not None:
-        updates.append("budget_threshold = %s")
-        values.append(payload.budget_threshold)
-
-    if not updates:
-        raise HTTPException(status_code=400, detail="No fields to update.")
-
-    values.append(target_client_id)
-    query = f"UPDATE clients SET {', '.join(updates)} WHERE id = %s"
-
     cursor = db.cursor()
-    cursor.execute(query, tuple(values))
+    cursor.execute(
+        UPDATE_BUDGET_SETTINGS,
+        (payload.budget_value, payload.alert_thresholds, payload.alert_emails, target_client_id)
+    )
     db.commit()
     db.close()
-    return {"message": "Billing settings updated successfully"}
+    return {"message": "Budget settings updated successfully."}
 
-@router.get("/budget")
-def get_billing_settings(
+
+@router.get("/budget-settings")
+def get_budget_settings(
     request: Request,
     db: Annotated = Depends(get_db),
     clientId: Optional[str] = Query(None)
 ):
     target_client_id = _get_target_client_id(request, clientId)
+    
+    from app.db.queries.billing_queries import GET_BUDGET_SETTINGS
+
     cursor = db.cursor()
-    cursor.execute(GET_BILLING_BUDGET, (target_client_id,))
+    cursor.execute(GET_BUDGET_SETTINGS, (target_client_id,))
     result = cursor.fetchone()
     db.close()
 
     if not result:
-        return {"budgetValue": 0.0, "budgetThreshold": 80}
+        return {"budgetValue": 0, "alertThresholds": [], "alertEmails": []}
 
-    return {"budgetValue": float(result[0] or 0), "budgetThreshold": int(result[1] or 0)}
+    return {
+        "budgetValue": float(result[0] or 0),
+        "alertThresholds": result[1] or [],
+        "alertEmails": result[2] or []
+    }
 
 @router.get("/monthly")
 def get_monthly_usage(
@@ -339,23 +316,19 @@ def get_yearly_summary(
     
     cursor = db.cursor()
 
-    # 1. Ambil data total biaya bulanan untuk grafik
     cursor.execute(GET_YEARLY_MONTHLY_TOTALS, (target_client_id, year))
     monthly_rows = cursor.fetchall()
     
-    # Inisialisasi 12 bulan dengan nilai 0
     monthly_costs_map = {i: 0 for i in range(1, 13)}
     for row in monthly_rows:
         month_number = row[0].month
         monthly_costs_map[month_number] = float(row[1] or 0)
 
-    # Format output agar sesuai dengan kebutuhan frontend
     monthly_costs = [
         {"month": datetime(year, month_num, 1).strftime("%B"), "total": total_cost}
         for month_num, total_cost in monthly_costs_map.items()
     ]
 
-    # 2. Ambil data total biaya per layanan untuk tabel
     cursor.execute(GET_YEARLY_SERVICE_TOTALS, (target_client_id, year))
     service_rows = cursor.fetchall()
     
@@ -369,7 +342,6 @@ def get_yearly_summary(
 
     db.close()
 
-    # 3. Hitung grand total dari rincian service
     grand_total_raw = sum(item["total"]["rawValue"] for item in service_costs)
 
     return {

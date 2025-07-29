@@ -131,6 +131,14 @@ GET_YEAR_TO_DATE_TOTAL = """
     AND EXTRACT(YEAR FROM bd.month_grouped_by_year_month) = %s
 """
 
+GET_MONTHLY_TOTAL_AGG_VALUE = """
+    SELECT SUM(bd.agg_value) AS total
+    FROM billing_data bd
+    JOIN projects p ON bd.project_id = p.project_id
+    WHERE p.client_id = %s
+      AND bd.month_grouped_by_year_month = %s;
+"""
+
 def get_monthly_usage_query(group_by: str, month_count: int) -> str:
     placeholders = ', '.join([f"%s" for _ in range(month_count)])
     return f"""
@@ -146,3 +154,16 @@ def get_monthly_usage_query(group_by: str, month_count: int) -> str:
         GROUP BY b.{group_by}, b.month_grouped_by_year_month
         ORDER BY name, month;
     """
+
+GET_BILLING_BUDGET_VALUE = """
+    SELECT budget_value FROM clients WHERE id = %s
+"""
+
+GET_BUDGET_SETTINGS = """
+    SELECT budget_value, budget_threshold, budget_alert_emails FROM clients WHERE id = %s
+"""
+
+# Query untuk PATCH /budget (update semua setting)
+UPDATE_BUDGET_SETTINGS = """
+    UPDATE clients SET budget_value = %s, budget_threshold = %s, budget_alert_emails = %s WHERE id = %s
+"""
