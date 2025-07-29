@@ -27,7 +27,9 @@ middleware = [
 app = FastAPI(
     title="GCP Billing API",
     version="1.0.0",
-    middleware=middleware
+    middleware=middleware,
+        proxy_headers=True,
+    root_path_in_servers=False 
 )
 
 @app.get("/")
