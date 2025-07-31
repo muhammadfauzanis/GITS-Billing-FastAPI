@@ -31,6 +31,7 @@ deploy:
         --allow-unauthenticated \
         --port=8000 \
         --timeout=600s \
+        --memory=1024Mi \
         --set-env-vars "SUPABASE_URL=$SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY,SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET,DATABASE_URI=$DATABASE_URI,CLIENT_URL=$CLIENT_URL,INTERNAL_API_KEY=$INTERNAL_API_KEY" \
         --min-instances=1 \
         --max-instances=10
