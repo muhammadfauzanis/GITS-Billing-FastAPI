@@ -12,7 +12,11 @@ router = APIRouter()
 @router.get("/")
 def get_notifications(request: Request, db: Annotated = Depends(get_db)):
     user = request.state.user
+    role = user.get("role")
     client_id = user.get("clientId")
+
+    if role == 'admin':
+        return {"notifications": []}
 
     if not client_id:
         raise HTTPException(status_code=403, detail="User is not associated with a client.")
@@ -26,7 +30,11 @@ def get_notifications(request: Request, db: Annotated = Depends(get_db)):
 @router.post("/{notification_id}/read")
 def mark_as_read(notification_id: int, request: Request, db: Annotated = Depends(get_db)):
     user = request.state.user
+    role = user.get("role")
     client_id = user.get("clientId")
+
+    if role == 'admin':
+        return {"message": "No action required for admin."}
 
     if not client_id:
         raise HTTPException(status_code=403, detail="User is not associated with a client.")
@@ -44,11 +52,12 @@ def mark_as_read(notification_id: int, request: Request, db: Annotated = Depends
 
 @router.delete("/{notification_id}")
 def delete_notification(notification_id: int, request: Request, db: Annotated = Depends(get_db)):
-    """
-    Menghapus notifikasi secara permanen.
-    """
     user = request.state.user
+    role = user.get("role")
     client_id = user.get("clientId")
+
+    if role == 'admin':
+        return {"message": "No action required for admin."}
 
     if not client_id:
         raise HTTPException(status_code=403, detail="User is not associated with a client.")

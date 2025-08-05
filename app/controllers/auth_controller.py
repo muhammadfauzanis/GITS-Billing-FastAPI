@@ -4,6 +4,8 @@ from typing import Annotated, Optional
 from datetime import datetime
 import os
 import requests
+import secrets
+
 
 from app.db.connection import get_db
 from app.db.queries.auth_queries import (
@@ -30,24 +32,16 @@ def get_supabase_user_by_email(email: str):
         "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"
     }
 
-    print("[DEBUG] Mengirim request ke Supabase Admin API...")
-    print("[DEBUG] URL:", url)
-    print("[DEBUG] Headers:", headers)
-
     try:
         response = requests.get(url, headers=headers, timeout=10)
-        print("[DEBUG] Status Code:", response.status_code)
-        print("[DEBUG] Response Text:", response.text)
 
         if response.status_code == 200:
             data = response.json()
             users = data.get("users", [])
-            print("[DEBUG] Ditemukan users:", users)
             return users[0] if users else None
         else:
             raise Exception(f"Failed to fetch Supabase user: {response.status_code} {response.text}")
     except requests.exceptions.RequestException as e:
-        print("[ERROR] Network error saat request ke Supabase:", str(e))
         raise Exception("Gagal menghubungi Supabase Admin API (network error)")
 
 
@@ -91,12 +85,23 @@ def register_user(
             is_password_set_for_db = False
 
         else:
-            existing_user = get_supabase_user_by_email(email)
+            random_password = secrets.token_urlsafe(12)
 
-            if not existing_user:
-                raise HTTPException(status_code=404, detail="Email belum pernah login dengan Google")
+            from supabase import create_client, Client
+            supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-            supabase_id = existing_user["id"]
+            user_attributes = {
+                "email": email,
+                "password": random_password,
+                "email_confirm": True
+            }
+
+            response = supabase.auth.admin.create_user(user_attributes)
+            new_user = response.user
+            if not new_user:
+                raise HTTPException(status_code=500, detail="Failed to create user in Supabase.")
+
+            supabase_id = new_user.id
             is_password_set_for_db = True
 
         cursor.execute(
