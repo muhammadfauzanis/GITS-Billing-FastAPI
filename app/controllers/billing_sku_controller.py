@@ -1,3 +1,5 @@
+# Ganti seluruh file controller Anda dengan kode ini
+
 from fastapi import APIRouter, Request, Depends, Query
 from typing import Annotated, Optional
 from datetime import date, timedelta
@@ -20,6 +22,7 @@ router = APIRouter()
 
 @router.get("/trend")
 def get_daily_sku_cost_trend(
+    # ... (Tidak ada perubahan di endpoint ini, sudah benar)
     request: Request,
     top_n: int = Query(10, ge=3, le=20),
     db: Annotated = Depends(get_db),
@@ -43,12 +46,13 @@ def get_daily_sku_cost_trend(
     all_days = [(final_start_date + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(num_days_in_range)]
     all_skus = sorted(list(set(row[1] for row in rows)))
 
+    for sku_desc in all_skus:
+        sku_map[sku_desc] = {day: 0.0 for day in all_days}
+    
     for row in rows:
         usage_date_str, sku_desc, total_cost = row[0].strftime("%Y-%m-%d"), row[1], float(row[2] or 0)
-        if sku_desc not in sku_map:
-            sku_map[sku_desc] = {day: 0.0 for day in all_days}
         if usage_date_str in sku_map[sku_desc]:
-            sku_map[sku_desc][usage_date_str] += total_cost
+            sku_map[sku_desc][usage_date_str] = total_cost
     
     formatted_result = [{"sku": sku, "daily_costs": cost_data} for sku, cost_data in sku_map.items()]
 
@@ -76,22 +80,23 @@ def get_sku_breakdown_table(
 
     breakdown = []
     for row in rows:
-        sku_desc, service, sku_id, unit, usage, cost, discount, promo = row
-        subtotal = float(cost or 0) - float(discount or 0) - float(promo or 0)
+        sku_desc, service, sku_id, unit, usage, cost, discount, promo, subtotal = row
         
         breakdown.append({
             "sku": sku_desc, "service": service, "skuId": sku_id,
             "usage": format_usage(float(usage or 0), unit),
-            "cost": format_currency(float(cost or 0)),
+            # DIUBAH: Kolom "cost" sekarang diisi dengan nilai subtotal (biaya akhir)
+            "cost": format_currency(float(subtotal or 0)), 
             "discounts": format_currency(float(discount or 0)),
             "promotions": format_currency(float(promo or 0)),
-            "subtotal": format_currency(subtotal), "rawSubtotal": subtotal
+            "subtotal": format_currency(float(subtotal or 0)), "rawSubtotal": float(subtotal or 0)
         })
 
     return {"data": breakdown}
 
 @router.get("/trend/project/{project_id}")
 def get_daily_sku_cost_trend_for_project(
+    # ... (Tidak ada perubahan di endpoint ini, sudah benar)
     project_id: str,
     request: Request,
     top_n: int = Query(10, ge=3, le=20),
@@ -116,12 +121,13 @@ def get_daily_sku_cost_trend_for_project(
     all_days = [(final_start_date + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(num_days_in_range)]
     all_skus = sorted(list(set(row[1] for row in rows)))
 
+    for sku_desc in all_skus:
+        sku_map[sku_desc] = {day: 0.0 for day in all_days}
+    
     for row in rows:
         usage_date_str, sku_desc, total_cost = row[0].strftime("%Y-%m-%d"), row[1], float(row[2] or 0)
-        if sku_desc not in sku_map:
-            sku_map[sku_desc] = {day: 0.0 for day in all_days}
         if usage_date_str in sku_map[sku_desc]:
-            sku_map[sku_desc][usage_date_str] += total_cost
+            sku_map[sku_desc][usage_date_str] = total_cost
     
     formatted_result = [{"sku": sku, "daily_costs": cost_data} for sku, cost_data in sku_map.items()]
 
@@ -150,16 +156,16 @@ def get_sku_breakdown_table_for_project(
 
     breakdown = []
     for row in rows:
-        sku_desc, service, sku_id, unit, usage, cost, discount, promo = row
-        subtotal = float(cost or 0) - float(discount or 0) - float(promo or 0)
+        sku_desc, service, sku_id, unit, usage, cost, discount, promo, subtotal = row
         
         breakdown.append({
             "sku": sku_desc, "service": service, "skuId": sku_id,
             "usage": format_usage(float(usage or 0), unit),
-            "cost": format_currency(float(cost or 0)),
+            # DIUBAH: Kolom "cost" sekarang diisi dengan nilai subtotal (biaya akhir)
+            "cost": format_currency(float(subtotal or 0)),
             "discounts": format_currency(float(discount or 0)),
             "promotions": format_currency(float(promo or 0)),
-            "subtotal": format_currency(subtotal), "rawSubtotal": subtotal
+            "subtotal": format_currency(float(subtotal or 0)), "rawSubtotal": float(subtotal or 0)
         })
 
     return {"data": breakdown}

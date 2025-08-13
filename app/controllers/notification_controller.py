@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request, Depends, HTTPException
 from typing import Annotated
 from app.db.connection import get_db
+from zoneinfo import ZoneInfo
 from app.db.queries.notification_queries import (
     GET_UNREAD_NOTIFICATIONS_BY_CLIENT_ID,
     MARK_NOTIFICATION_AS_READ,
@@ -23,7 +24,7 @@ def get_notifications(request: Request, db: Annotated = Depends(get_db)):
 
     cursor = db.cursor()
     cursor.execute(GET_UNREAD_NOTIFICATIONS_BY_CLIENT_ID, (client_id,))
-    notifications = [{"id": row[0], "message": row[1], "createdAt": row[2].strftime("%Y-%m-%d %H:%M:%S")} for row in cursor.fetchall()]
+    notifications = [{"id": row[0], "message": row[1], "createdAt": row[2].astimezone(ZoneInfo("Asia/Jakarta")).isoformat()} for row in cursor.fetchall()]
     db.close()
     return {"notifications": notifications}
 
