@@ -4,7 +4,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware import Middleware
 
-from app.routes import auth_routes, billing_routes, user_routes, admin_routes,notification_routes, invoice_routes
+from app.routes import (
+    auth_routes,
+    billing_routes,
+    user_routes,
+    admin_routes,
+    notification_routes,
+    invoice_routes,
+)
 from app.middleware.auth_middleware import AuthMiddleware
 
 load_dotenv()
@@ -29,16 +36,18 @@ app = FastAPI(
     version="1.0.0",
     middleware=middleware,
     proxy_headers=True,
-    root_path_in_servers=False 
+    root_path_in_servers=False,
 )
+
 
 @app.get("/")
 def root():
     return {"message": "Server is working!"}
 
+
 app.include_router(auth_routes.router)
 app.include_router(user_routes.router)
 app.include_router(billing_routes.router)
 app.include_router(admin_routes.router)
-app.include_router(notification_routes.router) 
-app.include_router(invoice_routes.router) 
+app.include_router(notification_routes.router)
+app.include_router(invoice_routes.router)
