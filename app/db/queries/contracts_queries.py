@@ -9,6 +9,9 @@ GET_ALL_CONTRACTS = """
         c.created_at
     FROM contracts c
     JOIN clients cl ON c.client_id = cl.id
+    WHERE 
+        (%s IS NULL OR EXTRACT(MONTH FROM c.end_date) = %s) AND
+        (%s IS NULL OR EXTRACT(YEAR FROM c.end_date) = %s)
     ORDER BY c.end_date DESC;
 """
 

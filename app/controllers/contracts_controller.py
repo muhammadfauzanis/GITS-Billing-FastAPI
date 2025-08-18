@@ -12,6 +12,7 @@ from fastapi import (
     Request,
     UploadFile,
     status,
+    Query,
 )
 from pydantic import BaseModel, EmailStr
 
@@ -64,14 +65,19 @@ def get_contract_status(end_date: date) -> str:
 
 
 @router.get("/", response_model=List[ContractResponse])
-def get_all_contracts(request: Request, db: Annotated = Depends(get_db)):
+def get_all_contracts(
+    request: Request,
+    db: Annotated = Depends(get_db),
+    month: Optional[int] = Query(default=None),
+    year: Optional[int] = Query(default=None),
+):
     if request.state.user.get("role") != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Access denied"
         )
 
     cursor = db.cursor()
-    cursor.execute(GET_ALL_CONTRACTS)
+    cursor.execute(GET_ALL_CONTRACTS, (month, month, year, year))
     contracts_raw = cursor.fetchall()
     db.close()
 
