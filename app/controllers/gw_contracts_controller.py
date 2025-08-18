@@ -2,7 +2,6 @@ import os
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Annotated, List, Optional
-from app.utils.helpers import get_contract_status
 
 from fastapi import (
     APIRouter,
@@ -16,15 +15,16 @@ from fastapi import (
     Query,
 )
 from pydantic import BaseModel, EmailStr
+from app.utils.helpers import get_contract_status
 
 from app.db.connection import get_db
-from app.db.queries.contracts_queries import (
-    DELETE_CONTRACT_BY_ID,
-    GET_ALL_CONTRACTS,
-    GET_CONTRACT_BY_ID,
-    GET_SINGLE_CONTRACT_DETAILS,
-    INSERT_CONTRACT,
-    UPDATE_CONTRACT,
+from app.db.queries.gw_contracts_queries import (
+    DELETE_GW_CONTRACT_BY_ID,
+    GET_ALL_GW_CONTRACTS,
+    GET_GW_CONTRACT_BY_ID,
+    GET_SINGLE_GW_CONTRACT_DETAILS,
+    INSERT_GW_CONTRACT,
+    UPDATE_GW_CONTRACT,
 )
 from app.middleware.auth_middleware import supabase
 
@@ -32,7 +32,7 @@ router = APIRouter()
 SUPABASE_BUCKET_NAME = "contracts"
 
 
-class ContractResponse(BaseModel):
+class GWContractResponse(BaseModel):
     id: int
     client_name: str
     start_date: date
@@ -43,9 +43,9 @@ class ContractResponse(BaseModel):
     created_at: datetime
 
 
-class ContractDetailsResponse(BaseModel):
+class GWContractDetailsResponse(BaseModel):
     id: int
-    client_id: int
+    client_gw_id: int
     client_name: str
     start_date: date
     end_date: date
@@ -56,12 +56,12 @@ class ContractDetailsResponse(BaseModel):
     updated_at: datetime
 
 
-@router.get("/", response_model=List[ContractResponse])
-def get_all_contracts(
+@router.get("/", response_model=List[GWContractResponse])
+def get_all_gw_contracts(
     request: Request,
     db: Annotated = Depends(get_db),
-    month: Optional[int] = Query(default=None),
-    year: Optional[int] = Query(default=None),
+    month: Optional[int] = Query(None, ge=1, le=12),
+    year: Optional[int] = Query(None),
 ):
     if request.state.user.get("role") != "admin":
         raise HTTPException(
@@ -69,7 +69,7 @@ def get_all_contracts(
         )
 
     cursor = db.cursor()
-    cursor.execute(GET_ALL_CONTRACTS, (month, month, year, year))
+    cursor.execute(GET_ALL_GW_CONTRACTS, (month, month, year, year))
     contracts_raw = cursor.fetchall()
     db.close()
 
@@ -79,7 +79,7 @@ def get_all_contracts(
             row
         )
         response.append(
-            ContractResponse(
+            GWContractResponse(
                 id=contract_id,
                 client_name=client_name,
                 start_date=start_date,
@@ -93,9 +93,9 @@ def get_all_contracts(
     return response
 
 
-@router.get("/{contract_id}", response_model=ContractDetailsResponse)
-def get_contract_details(
-    contract_id: int, request: Request, db: Annotated = Depends(get_db)
+@router.get("/{contract_gw_id}", response_model=GWContractDetailsResponse)
+def get_gw_contract_details(
+    contract_gw_id: int, request: Request, db: Annotated = Depends(get_db)
 ):
     if request.state.user.get("role") != "admin":
         raise HTTPException(
@@ -103,7 +103,7 @@ def get_contract_details(
         )
 
     cursor = db.cursor()
-    cursor.execute(GET_SINGLE_CONTRACT_DETAILS, (contract_id,))
+    cursor.execute(GET_SINGLE_GW_CONTRACT_DETAILS, (contract_gw_id,))
     contract = cursor.fetchone()
     db.close()
 
@@ -114,7 +114,7 @@ def get_contract_details(
 
     (
         id,
-        client_id,
+        client_gw_id,
         client_name,
         start_date,
         end_date,
@@ -125,9 +125,9 @@ def get_contract_details(
         updated_at,
     ) = contract
 
-    return ContractDetailsResponse(
+    return GWContractDetailsResponse(
         id=id,
-        client_id=client_id,
+        client_gw_id=client_gw_id,
         client_name=client_name,
         start_date=start_date,
         end_date=end_date,
@@ -140,9 +140,9 @@ def get_contract_details(
 
 
 @router.post("/")
-def create_contract(
+def create_gw_contract(
     request: Request,
-    client_id: Annotated[int, Form()],
+    client_gw_id: Annotated[int, Form()],
     start_date: Annotated[date, Form()],
     end_date: Annotated[date, Form()],
     client_contact_emails: Annotated[List[EmailStr], Form()],
@@ -165,16 +165,15 @@ def create_contract(
             file=file.file.read(),
             file_options={"content-type": file.content_type},
         )
-
         file_url_response = supabase.storage.from_(SUPABASE_BUCKET_NAME).get_public_url(
             file_path
         )
 
         cursor = db.cursor()
         cursor.execute(
-            INSERT_CONTRACT,
+            INSERT_GW_CONTRACT,
             (
-                client_id,
+                client_gw_id,
                 start_date,
                 end_date,
                 notes,
@@ -184,7 +183,6 @@ def create_contract(
         )
         new_id = cursor.fetchone()[0]
         db.commit()
-
         return {"message": "Contract created successfully", "contractId": new_id}
     except Exception as e:
         db.rollback()
@@ -195,12 +193,12 @@ def create_contract(
         db.close()
 
 
-@router.patch("/{contract_id}")
-def update_contract(
-    contract_id: int,
+@router.patch("/{contract_gw_id}")
+def update_gw_contract(
+    contract_gw_id: int,
     request: Request,
     db: Annotated = Depends(get_db),
-    client_id: Annotated[Optional[int], Form()] = None,
+    client_gw_id: Annotated[Optional[int], Form()] = None,
     start_date: Annotated[Optional[date], Form()] = None,
     end_date: Annotated[Optional[date], Form()] = None,
     client_contact_emails: Annotated[Optional[List[EmailStr]], Form()] = None,
@@ -213,14 +211,14 @@ def update_contract(
         )
 
     cursor = db.cursor()
-    cursor.execute(GET_SINGLE_CONTRACT_DETAILS, (contract_id,))
+    cursor.execute(GET_SINGLE_GW_CONTRACT_DETAILS, (contract_gw_id,))
     result = cursor.fetchone()
     if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Contract not found"
         )
 
-    existing_contract = ContractDetailsResponse.parse_obj(
+    existing_contract = GWContractDetailsResponse.parse_obj(
         dict(zip([desc[0] for desc in cursor.description], result))
     )
     new_file_url = existing_contract.file_url
@@ -247,7 +245,11 @@ def update_contract(
             )
 
         update_data = (
-            client_id if client_id is not None else existing_contract.client_id,
+            (
+                client_gw_id
+                if client_gw_id is not None
+                else existing_contract.client_gw_id
+            ),
             start_date if start_date is not None else existing_contract.start_date,
             end_date if end_date is not None else existing_contract.end_date,
             notes if notes is not None else existing_contract.notes,
@@ -257,10 +259,9 @@ def update_contract(
                 else existing_contract.client_contact_emails
             ),
             new_file_url,
-            contract_id,
+            contract_gw_id,
         )
-
-        cursor.execute(UPDATE_CONTRACT, update_data)
+        cursor.execute(UPDATE_GW_CONTRACT, update_data)
         db.commit()
         return {"message": "Contract updated successfully."}
     except Exception as e:
@@ -272,9 +273,9 @@ def update_contract(
         db.close()
 
 
-@router.delete("/{contract_id}")
-def delete_contract(
-    contract_id: int, request: Request, db: Annotated = Depends(get_db)
+@router.delete("/{contract_gw_id}")
+def delete_gw_contract(
+    contract_gw_id: int, request: Request, db: Annotated = Depends(get_db)
 ):
     if request.state.user.get("role") != "admin":
         raise HTTPException(
@@ -282,7 +283,7 @@ def delete_contract(
         )
 
     cursor = db.cursor()
-    cursor.execute(GET_CONTRACT_BY_ID, (contract_id,))
+    cursor.execute(GET_GW_CONTRACT_BY_ID, (contract_gw_id,))
     contract = cursor.fetchone()
     if not contract:
         raise HTTPException(
@@ -310,9 +311,9 @@ def delete_contract(
             except Exception as e:
                 raise e
 
-        cursor.execute(DELETE_CONTRACT_BY_ID, (contract_id,))
+        cursor.execute(DELETE_GW_CONTRACT_BY_ID, (contract_gw_id,))
         db.commit()
-        return {"message": f"Contract with ID {contract_id} has been deleted."}
+        return {"message": f"Contract with ID {contract_gw_id} has been deleted."}
     except Exception as e:
         db.rollback()
         raise HTTPException(

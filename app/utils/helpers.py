@@ -1,17 +1,20 @@
 import locale
 from fastapi import Request, HTTPException, status
 from typing import Optional
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import calendar
 
 try:
-    locale.setlocale(locale.LC_ALL, 'id_ID.UTF-8')
+    locale.setlocale(locale.LC_ALL, "id_ID.UTF-8")
 except locale.Error:
-    locale.setlocale(locale.LC_ALL, '')
+    locale.setlocale(locale.LC_ALL, "")
+
 
 def format_currency(amount: float) -> str:
     try:
-        formatted = f"{amount:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        formatted = (
+            f"{amount:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        )
         return f"Rp {formatted}"
     except Exception:
         return f"Rp {amount:.2f}".replace(".", ",")
@@ -22,7 +25,7 @@ def calculate_projection_moving_average(
     current_day: int,
     days_in_month: int,
     historical_data: list[float],
-    num_months_for_average: int = 3
+    num_months_for_average: int = 3,
 ) -> float:
     if current_day == 0:
         return 0.0
@@ -30,28 +33,33 @@ def calculate_projection_moving_average(
     daily_avg_current_month = current_amount / current_day
 
     if historical_data:
-        recent_historical_data = historical_data[:num_months_for_average] 
+        recent_historical_data = historical_data[:num_months_for_average]
         if recent_historical_data:
-            historical_average = sum(recent_historical_data) / len(recent_historical_data)
+            historical_average = sum(recent_historical_data) / len(
+                recent_historical_data
+            )
             weight_current = current_day / days_in_month
             weight_historical = 1 - weight_current
-            combined_daily_avg = (daily_avg_current_month * weight_current) + \
-                                 ((historical_average / days_in_month) * weight_historical)
+            combined_daily_avg = (daily_avg_current_month * weight_current) + (
+                (historical_average / days_in_month) * weight_historical
+            )
         else:
-            combined_daily_avg = daily_avg_current_month 
+            combined_daily_avg = daily_avg_current_month
     else:
         combined_daily_avg = daily_avg_current_month
 
     return combined_daily_avg * days_in_month
 
+
 def group_by(array: list[dict], key: str) -> dict[str, list[dict]]:
     result = {}
     for item in array:
-        group_key = str(item.get(key, 'unknown'))
+        group_key = str(item.get(key, "unknown"))
         if group_key not in result:
             result[group_key] = []
         result[group_key].append(item)
     return result
+
 
 def _get_target_client_id(request: Request, provided_client_id: Optional[str]) -> str:
     user_details = request.state.user
@@ -62,13 +70,22 @@ def _get_target_client_id(request: Request, provided_client_id: Optional[str]) -
         if provided_client_id:
             return provided_client_id
         else:
-            raise HTTPException(status_code=400, detail="Admin must specify a clientId for this operation.")
-    else: # Role 'client'
+            raise HTTPException(
+                status_code=400,
+                detail="Admin must specify a clientId for this operation.",
+            )
+    else:  # Role 'client'
         if not user_client_id:
-            raise HTTPException(status_code=401, detail="Unauthorized: Client ID not found in token.")
+            raise HTTPException(
+                status_code=401, detail="Unauthorized: Client ID not found in token."
+            )
         if provided_client_id and provided_client_id != str(user_client_id):
-            raise HTTPException(status_code=403, detail="Forbidden: Clients can only access their own data.")
+            raise HTTPException(
+                status_code=403,
+                detail="Forbidden: Clients can only access their own data.",
+            )
         return str(user_client_id)
+
 
 def format_usage(usage: float, unit: str) -> str:
     """
@@ -84,7 +101,7 @@ def format_usage(usage: float, unit: str) -> str:
         # 1 GiB = 1024^3 bytes, 1 hour = 3600 seconds
         gibibyte_hours = usage / (1024**3 * 3600)
         return f"{gibibyte_hours:,.2f} gibibyte hour"
-    
+
     if "seconds" in unit:
         if usage >= 3600:
             hours = usage / 3600
@@ -114,35 +131,31 @@ def format_usage(usage: float, unit: str) -> str:
 
     return f"{usage:,.2f} {unit}"
 
+
 def get_validated_date_range(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     month: Optional[int] = None,
     year: Optional[int] = None,
-    max_days: int = 31
+    max_days: int = 31,
 ) -> tuple[date, date]:
-    """
-    Memvalidasi dan menentukan rentang tanggal berdasarkan parameter yang diberikan.
-    - Prioritas 1: start_date dan end_date.
-    - Prioritas 2: month dan year.
-    - Default: Bulan kalender berjalan jika tidak ada parameter yang diberikan.
-    """
-    # Prioritas 1: Rentang tanggal kustom
     if start_date and end_date:
         if (end_date - start_date).days >= max_days:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Rentang tanggal kustom tidak boleh melebihi {max_days} hari."
+                detail=f"Rentang tanggal kustom tidak boleh melebihi {max_days} hari.",
             )
         if start_date > end_date:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tanggal mulai tidak boleh setelah tanggal selesai.")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Tanggal mulai tidak boleh setelah tanggal selesai.",
+            )
         return start_date, end_date
-    
-    # Prioritas 2: Bulan dan Tahun
+
     current_year = datetime.now().year
     if month and not year:
         year = current_year
-        
+
     if month and year:
         try:
             start_of_month = date(year, month, 1)
@@ -150,11 +163,22 @@ def get_validated_date_range(
             end_of_month = date(year, month, num_days_in_month)
             return start_of_month, end_of_month
         except ValueError:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bulan atau tahun yang diberikan tidak valid.")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Bulan atau tahun yang diberikan tidak valid.",
+            )
 
-    # Prioritas 3 (Default): Bulan kalender saat ini
     today = datetime.now().date()
     start_of_current_month = today.replace(day=1)
     _, last_day_of_current_month = calendar.monthrange(today.year, today.month)
     end_of_current_month = today.replace(day=last_day_of_current_month)
     return start_of_current_month, end_of_current_month
+
+
+def get_contract_status(end_date: date) -> str:
+    today = date.today()
+    if end_date < today:
+        return "Expired"
+    if end_date <= today + timedelta(days=30):
+        return "Expiring Soon"
+    return "Active"
