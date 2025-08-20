@@ -6,7 +6,9 @@ GET_ALL_GW_CONTRACTS = """
         c.end_date,
         c.notes,
         c.file_url,
-        c.created_at
+        c.created_at,
+        cl.domain,
+        cl.sku
     FROM contracts_gw c
     JOIN client_gw cl ON c.client_gw_id = cl.id
     WHERE 

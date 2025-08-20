@@ -41,6 +41,8 @@ class GWContractResponse(BaseModel):
     notes: Optional[str]
     file_url: str
     created_at: datetime
+    domain: Optional[str]
+    sku: Optional[str]
 
 
 class GWContractDetailsResponse(BaseModel):
@@ -75,9 +77,18 @@ def get_all_gw_contracts(
 
     response = []
     for row in contracts_raw:
-        contract_id, client_name, start_date, end_date, notes, file_url, created_at = (
-            row
-        )
+        (
+            contract_id,
+            client_name,
+            start_date,
+            end_date,
+            notes,
+            file_url,
+            created_at,
+            domain,
+            sku,
+        ) = row
+
         response.append(
             GWContractResponse(
                 id=contract_id,
@@ -88,6 +99,8 @@ def get_all_gw_contracts(
                 notes=notes,
                 file_url=file_url,
                 created_at=created_at,
+                domain=domain,
+                sku=sku,
             )
         )
     return response
