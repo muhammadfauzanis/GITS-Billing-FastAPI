@@ -1,4 +1,12 @@
-GET_ALL_CONTRACTS = """
+COUNT_ALL_CONTRACTS = """
+    SELECT COUNT(c.id)
+    FROM contracts c
+    WHERE 
+        (%s IS NULL OR EXTRACT(MONTH FROM c.end_date) = %s) AND
+        (%s IS NULL OR EXTRACT(YEAR FROM c.end_date) = %s);
+"""
+
+GET_PAGINATED_CONTRACTS = """
     SELECT
         c.id,
         cl.name AS client_name,
@@ -12,7 +20,8 @@ GET_ALL_CONTRACTS = """
     WHERE 
         (%s IS NULL OR EXTRACT(MONTH FROM c.end_date) = %s) AND
         (%s IS NULL OR EXTRACT(YEAR FROM c.end_date) = %s)
-    ORDER BY c.end_date DESC;
+    ORDER BY c.end_date DESC
+    LIMIT %s OFFSET %s;
 """
 
 GET_CONTRACT_BY_ID = """

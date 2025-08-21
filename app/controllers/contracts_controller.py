@@ -3,6 +3,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from typing import Annotated, List, Optional
 from app.utils.helpers import get_contract_status
+from math import ceil
 
 from fastapi import (
     APIRouter,
@@ -20,7 +21,8 @@ from pydantic import BaseModel, EmailStr
 from app.db.connection import get_db
 from app.db.queries.contracts_queries import (
     DELETE_CONTRACT_BY_ID,
-    GET_ALL_CONTRACTS,
+    COUNT_ALL_CONTRACTS,
+    GET_PAGINATED_CONTRACTS,
     GET_CONTRACT_BY_ID,
     GET_SINGLE_CONTRACT_DETAILS,
     INSERT_CONTRACT,
@@ -56,29 +58,49 @@ class ContractDetailsResponse(BaseModel):
     updated_at: datetime
 
 
-@router.get("/", response_model=List[ContractResponse])
+class PaginationResponse(BaseModel):
+    total_items: int
+    total_pages: int
+    current_page: int
+    limit: int
+
+
+class PaginatedContractResponse(BaseModel):
+    pagination: PaginationResponse
+    data: List[ContractResponse]
+
+
+@router.get("/", response_model=PaginatedContractResponse)
 def get_all_contracts(
     request: Request,
     db: Annotated = Depends(get_db),
-    month: Optional[int] = Query(default=None),
-    year: Optional[int] = Query(default=None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(15, ge=1),
+    month: Optional[int] = Query(None, ge=1, le=12),
+    year: Optional[int] = Query(None),
 ):
     if request.state.user.get("role") != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Access denied"
-        )
+        raise HTTPException(status_code=403, detail="Access denied")
 
     cursor = db.cursor()
-    cursor.execute(GET_ALL_CONTRACTS, (month, month, year, year))
+    filter_params = (month, month, year, year)
+
+    cursor.execute(COUNT_ALL_CONTRACTS, filter_params)
+    total_items = cursor.fetchone()[0]
+    total_pages = ceil(total_items / limit)
+
+    offset = (page - 1) * limit
+    paginated_params = (*filter_params, limit, offset)
+    cursor.execute(GET_PAGINATED_CONTRACTS, paginated_params)
     contracts_raw = cursor.fetchall()
     db.close()
 
-    response = []
+    response_data = []
     for row in contracts_raw:
         contract_id, client_name, start_date, end_date, notes, file_url, created_at = (
             row
         )
-        response.append(
+        response_data.append(
             ContractResponse(
                 id=contract_id,
                 client_name=client_name,
@@ -90,7 +112,16 @@ def get_all_contracts(
                 created_at=created_at,
             )
         )
-    return response
+
+    return PaginatedContractResponse(
+        pagination=PaginationResponse(
+            total_items=total_items,
+            total_pages=total_pages,
+            current_page=page,
+            limit=limit,
+        ),
+        data=response_data,
+    )
 
 
 @router.get("/{contract_id}", response_model=ContractDetailsResponse)

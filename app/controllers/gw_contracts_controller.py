@@ -1,7 +1,8 @@
 import os
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Annotated, List, Optional
+from math import ceil
 
 from fastapi import (
     APIRouter,
@@ -20,7 +21,8 @@ from app.utils.helpers import get_contract_status
 from app.db.connection import get_db
 from app.db.queries.gw_contracts_queries import (
     DELETE_GW_CONTRACT_BY_ID,
-    GET_ALL_GW_CONTRACTS,
+    COUNT_ALL_GW_CONTRACTS,
+    GET_PAGINATED_GW_CONTRACTS,
     GET_GW_CONTRACT_BY_ID,
     GET_SINGLE_GW_CONTRACT_DETAILS,
     INSERT_GW_CONTRACT,
@@ -58,24 +60,44 @@ class GWContractDetailsResponse(BaseModel):
     updated_at: datetime
 
 
-@router.get("/", response_model=List[GWContractResponse])
+class PaginationResponse(BaseModel):
+    total_items: int
+    total_pages: int
+    current_page: int
+    limit: int
+
+
+class PaginatedGWContractResponse(BaseModel):
+    pagination: PaginationResponse
+    data: List[GWContractResponse]
+
+
+@router.get("/", response_model=PaginatedGWContractResponse)
 def get_all_gw_contracts(
     request: Request,
     db: Annotated = Depends(get_db),
+    page: int = Query(1, ge=1),
+    limit: int = Query(15, ge=1),
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None),
 ):
     if request.state.user.get("role") != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Access denied"
-        )
+        raise HTTPException(status_code=403, detail="Access denied")
 
     cursor = db.cursor()
-    cursor.execute(GET_ALL_GW_CONTRACTS, (month, month, year, year))
+    filter_params = (month, month, year, year)
+
+    cursor.execute(COUNT_ALL_GW_CONTRACTS, filter_params)
+    total_items = cursor.fetchone()[0]
+    total_pages = ceil(total_items / limit)
+
+    offset = (page - 1) * limit
+    paginated_params = (*filter_params, limit, offset)
+    cursor.execute(GET_PAGINATED_GW_CONTRACTS, paginated_params)
     contracts_raw = cursor.fetchall()
     db.close()
 
-    response = []
+    response_data = []
     for row in contracts_raw:
         (
             contract_id,
@@ -88,8 +110,7 @@ def get_all_gw_contracts(
             domain,
             sku,
         ) = row
-
-        response.append(
+        response_data.append(
             GWContractResponse(
                 id=contract_id,
                 client_name=client_name,
@@ -103,7 +124,16 @@ def get_all_gw_contracts(
                 sku=sku,
             )
         )
-    return response
+
+    return PaginatedGWContractResponse(
+        pagination=PaginationResponse(
+            total_items=total_items,
+            total_pages=total_pages,
+            current_page=page,
+            limit=limit,
+        ),
+        data=response_data,
+    )
 
 
 @router.get("/{contract_gw_id}", response_model=GWContractDetailsResponse)

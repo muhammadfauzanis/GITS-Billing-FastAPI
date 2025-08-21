@@ -1,4 +1,12 @@
-GET_ALL_GW_CONTRACTS = """
+COUNT_ALL_GW_CONTRACTS = """
+    SELECT COUNT(c.id)
+    FROM contracts_gw c
+    WHERE 
+        (%s IS NULL OR EXTRACT(MONTH FROM c.end_date) = %s) AND
+        (%s IS NULL OR EXTRACT(YEAR FROM c.end_date) = %s);
+"""
+
+GET_PAGINATED_GW_CONTRACTS = """
     SELECT
         c.id,
         cl.client AS client_name,
@@ -14,9 +22,9 @@ GET_ALL_GW_CONTRACTS = """
     WHERE 
         (%s IS NULL OR EXTRACT(MONTH FROM c.end_date) = %s) AND
         (%s IS NULL OR EXTRACT(YEAR FROM c.end_date) = %s)
-    ORDER BY c.end_date DESC;
+    ORDER BY c.end_date DESC
+    LIMIT %s OFFSET %s;
 """
-
 GET_GW_CONTRACT_BY_ID = """
     SELECT file_url FROM contracts_gw WHERE id = %s;
 """
