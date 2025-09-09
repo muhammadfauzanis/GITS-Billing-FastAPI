@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request, Depends, HTTPException
 from typing import Annotated
 from app.db.connection import get_db
+from zoneinfo import ZoneInfo
 from app.db.queries.notification_queries import (
     GET_UNREAD_NOTIFICATIONS_BY_CLIENT_ID,
     MARK_NOTIFICATION_AS_READ,
@@ -12,21 +13,29 @@ router = APIRouter()
 @router.get("/")
 def get_notifications(request: Request, db: Annotated = Depends(get_db)):
     user = request.state.user
+    role = user.get("role")
     client_id = user.get("clientId")
+
+    if role == 'admin':
+        return {"notifications": []}
 
     if not client_id:
         raise HTTPException(status_code=403, detail="User is not associated with a client.")
 
     cursor = db.cursor()
     cursor.execute(GET_UNREAD_NOTIFICATIONS_BY_CLIENT_ID, (client_id,))
-    notifications = [{"id": row[0], "message": row[1], "createdAt": row[2].strftime("%Y-%m-%d %H:%M:%S")} for row in cursor.fetchall()]
+    notifications = [{"id": row[0], "message": row[1], "createdAt": row[2].astimezone(ZoneInfo("Asia/Jakarta")).isoformat()} for row in cursor.fetchall()]
     db.close()
     return {"notifications": notifications}
 
 @router.post("/{notification_id}/read")
 def mark_as_read(notification_id: int, request: Request, db: Annotated = Depends(get_db)):
     user = request.state.user
+    role = user.get("role")
     client_id = user.get("clientId")
+
+    if role == 'admin':
+        return {"message": "No action required for admin."}
 
     if not client_id:
         raise HTTPException(status_code=403, detail="User is not associated with a client.")
@@ -44,11 +53,12 @@ def mark_as_read(notification_id: int, request: Request, db: Annotated = Depends
 
 @router.delete("/{notification_id}")
 def delete_notification(notification_id: int, request: Request, db: Annotated = Depends(get_db)):
-    """
-    Menghapus notifikasi secara permanen.
-    """
     user = request.state.user
+    role = user.get("role")
     client_id = user.get("clientId")
+
+    if role == 'admin':
+        return {"message": "No action required for admin."}
 
     if not client_id:
         raise HTTPException(status_code=403, detail="User is not associated with a client.")

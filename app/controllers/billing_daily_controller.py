@@ -1,7 +1,6 @@
-from fastapi import APIRouter, Request, HTTPException, Depends, Query, status
+from fastapi import APIRouter, Request, Depends, Query
 from typing import Annotated, Optional
-from datetime import datetime, timedelta, date
-import calendar
+from datetime import timedelta, date
 
 from app.db.connection import get_db
 from app.utils.helpers import _get_target_client_id, format_currency, get_validated_date_range 
@@ -11,7 +10,6 @@ from app.db.queries.billing_daily_queries import (
     GET_SERVICE_BREAKDOWN_FOR_DATE_RANGE,
     GET_DAILY_SERVICE_BREAKDOWN_PER_PROJECT
 )
-from app.db.queries.billing_queries import GET_MONTHLY_TOTAL_AGG_VALUE
 
 router = APIRouter()
 
@@ -31,18 +29,6 @@ def get_daily_service_breakdown(
     cursor = db.cursor()
     cursor.execute(GET_DAILY_COSTS_BREAKDOWN_FOR_DATE_RANGE, (int(target_client_id), final_start_date, final_end_date))
     daily_raw_breakdown = cursor.fetchall()
-    
-    total_raw_from_daily = sum(float(row[2] or 0) for row in daily_raw_breakdown)
-
-    discount_factor = 1.0
-    if month and year:
-        month_start_for_agg_query = final_start_date.strftime("%Y-%m-01")
-        cursor.execute(GET_MONTHLY_TOTAL_AGG_VALUE, (int(target_client_id), month_start_for_agg_query))
-        monthly_agg_total_row = cursor.fetchone()
-        monthly_agg_total = float(monthly_agg_total_row[0] or 0)
-        if total_raw_from_daily > 0 and monthly_agg_total > 0:
-            discount_factor = monthly_agg_total / total_raw_from_daily
-    
     db.close()
 
     num_days_in_range = (final_end_date - final_start_date).days + 1
@@ -50,15 +36,14 @@ def get_daily_service_breakdown(
     breakdown_map = {day.strftime("%Y-%m-%d"): {"services": [], "total": 0.0} for day in all_days_in_range}
     
     for row in daily_raw_breakdown:
-        usage_date_str, service_name, raw_cost = row[0].strftime("%Y-%m-%d"), row[1], float(row[2] or 0)
-        approximated_cost = raw_cost * discount_factor
+        usage_date_str, service_name, final_cost = row[0].strftime("%Y-%m-%d"), row[1], float(row[2] or 0)
         
         if usage_date_str in breakdown_map:
             breakdown_map[usage_date_str]["services"].append({
                 "service": service_name, 
-                "cost": approximated_cost
+                "cost": final_cost # Langsung pakai biaya final
             })
-            breakdown_map[usage_date_str]["total"] += approximated_cost
+            breakdown_map[usage_date_str]["total"] += final_cost
 
     formatted_result = [{"date": date, **data} for date, data in breakdown_map.items()]
     all_services = sorted(list(set(row[1] for row in daily_raw_breakdown)))
@@ -80,35 +65,22 @@ def get_daily_project_breakdown(
     final_start_date, final_end_date = get_validated_date_range(start_date, end_date, month, year)
 
     cursor = db.cursor()
-    cursor.execute(GET_DAILY_COSTS_PROJECT_BREAKDOWN_FOR_DATE_RANGE, (target_client_id, final_start_date, final_end_date))
+    cursor.execute(GET_DAILY_COSTS_PROJECT_BREAKDOWN_FOR_DATE_RANGE, (int(target_client_id), final_start_date, final_end_date))
     daily_raw_breakdown = cursor.fetchall()
-    
-    total_raw_from_daily = sum(float(row[2] or 0) for row in daily_raw_breakdown)
-
-    discount_factor = 1.0
-    if month and year:
-        month_start_for_agg_query = final_start_date.strftime("%Y-%m-01")
-        cursor.execute(GET_MONTHLY_TOTAL_AGG_VALUE, (target_client_id, month_start_for_agg_query))
-        monthly_agg_total_row = cursor.fetchone()
-        monthly_agg_total = float(monthly_agg_total_row[0] or 0)
-        if total_raw_from_daily > 0 and monthly_agg_total > 0:
-            discount_factor = monthly_agg_total / total_raw_from_daily
-    
     db.close()
-
+    
     projects_map = {}
     num_days_in_range = (final_end_date - final_start_date).days + 1
     all_days = [ (final_start_date + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(num_days_in_range) ]
 
     for row in daily_raw_breakdown:
-        usage_date_str, project_id, raw_cost = row[0].strftime("%Y-%m-%d"), row[1], float(row[2] or 0)
+        usage_date_str, project_id, final_cost = row[0].strftime("%Y-%m-%d"), row[1], float(row[2] or 0)
         
         if project_id not in projects_map:
             projects_map[project_id] = {day: 0.0 for day in all_days}
         
-        approximated_cost = raw_cost * discount_factor
         if usage_date_str in projects_map[project_id]:
-            projects_map[project_id][usage_date_str] += approximated_cost
+            projects_map[project_id][usage_date_str] += final_cost
 
     formatted_result = [
         {"project": project_id, "daily_costs": costs}
@@ -138,19 +110,19 @@ def get_month_to_date_service_breakdown(
 
     breakdown = []
     for row in rows:
-        service, cost, discount, promo = row
+        service, cost, total_discounts, reseller_margin, subtotal = row
+        
         cost_float = float(cost or 0)
-        discount_float = float(discount or 0)
-        promo_float = float(promo or 0)
-        subtotal = cost_float - discount_float - promo_float
+        discounts_float = float(total_discounts or 0)
+        subtotal_float = float(subtotal or 0)
         
         breakdown.append({
             "service": service,
             "cost": format_currency(cost_float),
-            "discounts": format_currency(discount_float),
-            "promotions": format_currency(promo_float),
-            "subtotal": format_currency(subtotal),
-            "rawSubtotal": subtotal
+            "discounts": format_currency(discounts_float), 
+            "promotions": format_currency(0),
+            "subtotal": format_currency(subtotal_float),
+            "rawSubtotal": subtotal_float
         })
 
     return {"breakdown": breakdown}
@@ -170,7 +142,7 @@ def get_daily_service_breakdown_for_project(
     final_start_date, final_end_date = get_validated_date_range(start_date, end_date, month, year)
 
     cursor = db.cursor()
-    params = (project_id, target_client_id, final_start_date, final_end_date)
+    params = (project_id, int(target_client_id), final_start_date, final_end_date)
     cursor.execute(GET_DAILY_SERVICE_BREAKDOWN_PER_PROJECT, params)
     rows = cursor.fetchall()
     db.close()
