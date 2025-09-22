@@ -3,6 +3,7 @@ from fastapi import Request, HTTPException, status
 from typing import Optional
 from datetime import date, datetime, timedelta
 import calendar
+import re
 
 try:
     locale.setlocale(locale.LC_ALL, "id_ID.UTF-8")
@@ -182,3 +183,13 @@ def get_contract_status(end_date: date) -> str:
     if end_date <= today + timedelta(days=30):
         return "Expiring Soon"
     return "Active"
+
+
+def sanitize_filename(filename: str) -> str:
+    """
+    Membersihkan nama file dari karakter tidak aman dan mengganti spasi
+    dengan underscore.
+    """
+    filename = re.sub(r"[^a-zA-Z0-9\._-]", "", filename)
+    filename = filename.replace(" ", "_")
+    return filename

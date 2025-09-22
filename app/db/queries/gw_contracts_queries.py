@@ -67,3 +67,7 @@ DELETE_GW_CONTRACT_BY_ID = """
 GET_ALL_GW_CLIENTS = """
     SELECT id, client as name FROM client_gw ORDER BY name ASC;
 """
+
+GET_CLIENT_NAME_BY_ID_GW = """
+    SELECT client FROM client_gw WHERE id = %s;
+"""

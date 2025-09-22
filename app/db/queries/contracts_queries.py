@@ -62,3 +62,7 @@ UPDATE_CONTRACT = """
 DELETE_CONTRACT_BY_ID = """
     DELETE FROM contracts WHERE id = %s;
 """
+
+GET_CLIENT_NAME_BY_ID_GCP = """
+    SELECT name FROM clients WHERE id = %s;
+"""

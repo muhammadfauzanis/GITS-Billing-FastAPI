@@ -16,7 +16,7 @@ from fastapi import (
     Query,
 )
 from pydantic import BaseModel, EmailStr
-from app.utils.helpers import get_contract_status
+from app.utils.helpers import get_contract_status, sanitize_filename
 
 from app.db.connection import get_db
 from app.db.queries.gw_contracts_queries import (
@@ -27,6 +27,7 @@ from app.db.queries.gw_contracts_queries import (
     GET_SINGLE_GW_CONTRACT_DETAILS,
     INSERT_GW_CONTRACT,
     UPDATE_GW_CONTRACT,
+    GET_CLIENT_NAME_BY_ID_GW,
 )
 from app.middleware.auth_middleware import supabase
 
@@ -186,6 +187,7 @@ def get_gw_contract_details(
 def create_gw_contract(
     request: Request,
     client_gw_id: Annotated[int, Form()],
+    client_name: Annotated[str, Form()],
     start_date: Annotated[date, Form()],
     end_date: Annotated[date, Form()],
     client_contact_emails: Annotated[List[EmailStr], Form()],
@@ -199,9 +201,9 @@ def create_gw_contract(
         )
 
     try:
-        file_extension = os.path.splitext(file.filename)[1]
-        file_name = f"{uuid.uuid4()}{file_extension}"
-        file_path = f"GCP/{file_name}"
+        year = start_date.year
+        original_filename = sanitize_filename(file.filename)
+        file_path = f"GW/{year}/{original_filename}"
 
         supabase.storage.from_(SUPABASE_BUCKET_NAME).upload(
             path=file_path,
@@ -242,6 +244,7 @@ def update_gw_contract(
     request: Request,
     db: Annotated = Depends(get_db),
     client_gw_id: Annotated[Optional[int], Form()] = None,
+    client_name: Annotated[Optional[str], Form()] = None,
     start_date: Annotated[Optional[date], Form()] = None,
     end_date: Annotated[Optional[date], Form()] = None,
     client_contact_emails: Annotated[Optional[List[EmailStr]], Form()] = None,
@@ -274,9 +277,26 @@ def update_gw_contract(
                 )[1]
                 supabase.storage.from_(SUPABASE_BUCKET_NAME).remove([old_file_path])
 
-            file_extension = os.path.splitext(file.filename)[1]
-            new_file_name = f"{uuid.uuid4()}{file_extension}"
-            new_file_path = f"GCP/{new_file_name}"
+            final_client_id = (
+                client_gw_id
+                if client_gw_id is not None
+                else existing_contract.client_gw_id
+            )
+            final_start_date = (
+                start_date if start_date is not None else existing_contract.start_date
+            )
+
+            current_client_name = client_name
+            if not current_client_name:
+                cursor.execute(GET_CLIENT_NAME_BY_ID_GW, (final_client_id,))
+                name_result = cursor.fetchone()
+                current_client_name = (
+                    name_result[0] if name_result else existing_contract.client_name
+                )
+
+            year = final_start_date.year
+            original_filename = sanitize_filename(file.filename)
+            new_file_path = f"GW/{year}/{original_filename}"
 
             supabase.storage.from_(SUPABASE_BUCKET_NAME).upload(
                 path=new_file_path,
@@ -337,10 +357,12 @@ def delete_gw_contract(
         file_url = contract[0]
         if file_url:
             try:
-                file_path = file_url.split(f"{SUPABASE_BUCKET_NAME}/")[1]
+                cleaned_url = file_url.split("?")[0]
+                file_path = cleaned_url.split(f"{SUPABASE_BUCKET_NAME}/")[1]
                 response_list = supabase.storage.from_(SUPABASE_BUCKET_NAME).remove(
                     [file_path]
                 )
+
                 if (
                     response_list
                     and isinstance(response_list, list)

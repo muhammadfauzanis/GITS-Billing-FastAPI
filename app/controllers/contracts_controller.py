@@ -1,8 +1,7 @@
 import os
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Annotated, List, Optional
-from app.utils.helpers import get_contract_status
 from math import ceil
 
 from fastapi import (
@@ -17,6 +16,7 @@ from fastapi import (
     Query,
 )
 from pydantic import BaseModel, EmailStr
+from app.utils.helpers import get_contract_status, sanitize_filename
 
 from app.db.connection import get_db
 from app.db.queries.contracts_queries import (
@@ -27,6 +27,7 @@ from app.db.queries.contracts_queries import (
     GET_SINGLE_CONTRACT_DETAILS,
     INSERT_CONTRACT,
     UPDATE_CONTRACT,
+    GET_CLIENT_NAME_BY_ID_GCP,
 )
 from app.middleware.auth_middleware import supabase
 
@@ -174,6 +175,7 @@ def get_contract_details(
 def create_contract(
     request: Request,
     client_id: Annotated[int, Form()],
+    client_name: Annotated[str, Form()],
     start_date: Annotated[date, Form()],
     end_date: Annotated[date, Form()],
     client_contact_emails: Annotated[List[EmailStr], Form()],
@@ -187,9 +189,9 @@ def create_contract(
         )
 
     try:
-        file_extension = os.path.splitext(file.filename)[1]
-        file_name = f"{uuid.uuid4()}{file_extension}"
-        file_path = f"GCP/{file_name}"
+        year = start_date.year
+        original_filename = sanitize_filename(file.filename)
+        file_path = f"GCP/{year}/{original_filename}"
 
         supabase.storage.from_(SUPABASE_BUCKET_NAME).upload(
             path=file_path,
@@ -232,6 +234,7 @@ def update_contract(
     request: Request,
     db: Annotated = Depends(get_db),
     client_id: Annotated[Optional[int], Form()] = None,
+    client_name: Annotated[Optional[str], Form()] = None,
     start_date: Annotated[Optional[date], Form()] = None,
     end_date: Annotated[Optional[date], Form()] = None,
     client_contact_emails: Annotated[Optional[List[EmailStr]], Form()] = None,
@@ -264,9 +267,24 @@ def update_contract(
                 )[1]
                 supabase.storage.from_(SUPABASE_BUCKET_NAME).remove([old_file_path])
 
-            file_extension = os.path.splitext(file.filename)[1]
-            new_file_name = f"{uuid.uuid4()}{file_extension}"
-            new_file_path = f"GCP/{new_file_name}"
+            final_client_id = (
+                client_id if client_id is not None else existing_contract.client_id
+            )
+            final_start_date = (
+                start_date if start_date is not None else existing_contract.start_date
+            )
+
+            current_client_name = client_name
+            if not current_client_name:
+                cursor.execute(GET_CLIENT_NAME_BY_ID_GCP, (final_client_id,))
+                name_result = cursor.fetchone()
+                current_client_name = (
+                    name_result[0] if name_result else existing_contract.client_name
+                )
+
+            year = final_start_date.year
+            original_filename = sanitize_filename(file.filename)
+            new_file_path = f"GCP/{year}/{original_filename}"
 
             supabase.storage.from_(SUPABASE_BUCKET_NAME).upload(
                 path=new_file_path,

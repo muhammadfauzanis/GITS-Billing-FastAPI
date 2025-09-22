@@ -11,19 +11,6 @@ GET_DAILY_COSTS_FOR_DATE_RANGE = """
     ORDER BY bd.usage_date ASC;
 """
 
-GET_DAILY_COSTS_FOR_DATE_RANGE = """
-    SELECT
-        bd.usage_date,
-        SUM(bd.cost_before_discount) AS daily_total
-    FROM billing_data_daily bd
-    JOIN projects p ON bd.project_id = p.project_id
-    WHERE p.client_id = %s
-      AND bd.usage_date >= %s
-      AND bd.usage_date <= %s
-    GROUP BY bd.usage_date
-    ORDER BY bd.usage_date ASC;
-"""
-
 GET_PROJECT_BREAKDOWN_FOR_DATE_RANGE = """
     SELECT
         bd.project_id,
@@ -51,7 +38,8 @@ GET_DAILY_COSTS_BREAKDOWN_FOR_DATE_RANGE = """
         s.gcp_services,
         SUM(s.agg_value) AS daily_service_total -- DIUBAH: Gunakan agg_value
     FROM billing_data_daily s
-    WHERE s.client_id = %s
+    JOIN projects p ON s.project_id = p.project_id
+    WHERE p.client_id = %s
       AND s.usage_date >= %s
       AND s.usage_date <= %s
     GROUP BY s.usage_date, s.gcp_services
@@ -64,7 +52,8 @@ GET_DAILY_COSTS_PROJECT_BREAKDOWN_FOR_DATE_RANGE = """
         bd.project_id,
         SUM(bd.agg_value) AS daily_project_total -- DIUBAH: Gunakan agg_value
     FROM billing_data_daily bd
-    WHERE bd.client_id = %s
+    JOIN projects p ON bd.project_id = p.project_id
+    WHERE p.client_id = %s
       AND bd.usage_date >= %s
       AND bd.usage_date <= %s
     GROUP BY bd.usage_date, bd.project_id
@@ -79,7 +68,8 @@ GET_SERVICE_BREAKDOWN_FOR_DATE_RANGE = """
         SUM(s.reseller_margin) as total_reseller_margin, -- DIUBAH: Kolom dan nama yang benar
         SUM(s.agg_value) as subtotal -- DIUBAH: Subtotal adalah agg_value
     FROM billing_data_daily s
-    WHERE s.client_id = %s
+    JOIN projects p ON s.project_id = p.project_id
+    WHERE p.client_id = %s
       AND s.usage_date >= %s
       AND s.usage_date <= %s
     GROUP BY s.gcp_services
@@ -88,13 +78,14 @@ GET_SERVICE_BREAKDOWN_FOR_DATE_RANGE = """
 
 GET_DAILY_SERVICE_BREAKDOWN_PER_PROJECT = """
   SELECT
-    DATE(usage_date) as day,
-    gcp_services,
-    SUM(agg_value) as total -- DIUBAH: Gunakan agg_value
-  FROM billing_data_daily
-  WHERE project_id = %s
-    AND client_id = %s 
-    AND usage_date BETWEEN %s AND %s
-  GROUP BY day, gcp_services
+    DATE(bd.usage_date) as day,
+    bd.gcp_services,
+    SUM(bd.agg_value) as total
+  FROM billing_data_daily bd
+  JOIN projects p ON bd.project_id = p.project_id
+  WHERE bd.project_id = %s
+    AND p.client_id  = %s
+    AND bd.usage_date BETWEEN %s AND %s
+  GROUP BY day, bd.gcp_services
   ORDER BY day, total DESC;
 """
