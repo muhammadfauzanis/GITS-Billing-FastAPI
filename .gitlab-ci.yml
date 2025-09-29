@@ -3,7 +3,8 @@ image: google/cloud-sdk:slim
 variables:
   REGION: asia-southeast2
   REPO_NAME: gits-billing-fastapi
-  IMAGE: $REGION-docker.pkg.dev/$GCP_PROJECT_ID/$REPO_NAME/$CLOUD_RUN_SERVICE_NAME:$CI_COMMIT_SHORT_SHA
+  PROD_SERVICE_NAME: $CLOUD_RUN_SERVICE_NAME
+  STAGING_SERVICE_NAME: $CLOUD_RUN_SERVICE_NAME-staging
 
 stages:
   - deploy
@@ -14,17 +15,41 @@ before_script:
   - gcloud config set project $GCP_PROJECT_ID
   - gcloud auth configure-docker $REGION-docker.pkg.dev
 
-deploy:
+deploy_staging:
+  stage: deploy
+  tags:
+    - gits-shell
+  only:
+    - staging
+  script:
+    - export IMAGE=$REGION-docker.pkg.dev/$GCP_PROJECT_ID/$REPO_NAME/$STAGING_SERVICE_NAME:$CI_COMMIT_SHORT_SHA
+    - docker build -t $IMAGE .
+    - docker push $IMAGE
+    - |
+      gcloud run deploy $STAGING_SERVICE_NAME \
+        --image=$IMAGE \
+        --platform=managed \
+        --region=$REGION \
+        --allow-unauthenticated \
+        --port=8000 \
+        --timeout=1800s \
+        --memory=2048Mi \
+        --set-env-vars "SUPABASE_URL=$STAGING_SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY=$STAGING_SUPABASE_SERVICE_ROLE_KEY,SUPABASE_JWT_SECRET=$STAGING_SUPABASE_JWT_SECRET,DATABASE_URI=$STAGING_DATABASE_URI,CLIENT_URL=$STAGING_CLIENT_URL,INTERNAL_API_KEY=$STAGING_INTERNAL_API_KEY,SUPABASE_BUCKET_NAME=$STAGING_SUPABASE_BUCKET_NAME" \
+        --min-instances=0 \
+        --max-instances=2
+
+deploy_production:
   stage: deploy
   tags:
     - gits-shell
   only:
     - production
   script:
+    - export IMAGE=$REGION-docker.pkg.dev/$GCP_PROJECT_ID/$REPO_NAME/$PROD_SERVICE_NAME:$CI_COMMIT_SHORT_SHA
     - docker build -t $IMAGE .
     - docker push $IMAGE
     - |
-      gcloud run deploy $CLOUD_RUN_SERVICE_NAME \
+      gcloud run deploy $PROD_SERVICE_NAME \
         --image=$IMAGE \
         --platform=managed \
         --region=$REGION \
