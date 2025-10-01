@@ -1,40 +1,52 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from typing import Annotated, Optional, List
-from app.db.connection import get_db
-from app.db.queries.invoice_queries import (
-    GET_INVOICES_BY_CLIENT_ID,
-    GET_INVOICE_DETAILS_BY_ID,
-    UPDATE_INVOICE_STATUS,
-    COUNT_INVOICES_FOR_ADMIN,
-    GET_PAGINATED_INVOICES_FOR_ADMIN,
-    ADMIN_UPDATE_INVOICE_DETAILS,
-)
-from app.middleware.auth_middleware import supabase
-from app.utils.helpers import format_currency, _get_target_client_id
-from weasyprint import HTML
-from pydantic import BaseModel
-from typing import Literal
-from datetime import date
-from collections import defaultdict
+import os
+from urllib.parse import urlparse
+import httpx
 import locale
 from math import ceil
+from datetime import date
+from collections import defaultdict
+from typing import Annotated, Optional, List, Literal
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    BackgroundTasks,
+    status,
+)
+from pydantic import BaseModel
+from weasyprint import HTML
+
+from app.db.connection import get_db
+from app.db.queries import invoice_queries
+from app.middleware.auth_middleware import supabase
+from app.utils.helpers import format_currency, _get_target_client_id
 
 try:
     locale.setlocale(locale.LC_TIME, "id_ID.UTF-8")
 except locale.Error:
     locale.setlocale(locale.LC_TIME, "")
 
+N8N_SEND_INVOICE_WEBHOOK_URL = os.getenv("N8N_SEND_INVOICE_WEBHOOK_URL")
 router = APIRouter()
 
 
-class UpdateStatusPayload(BaseModel):
-    status: Literal["pending", "paid", "overdue", "failed"]
+class RejectInvoicePayload(BaseModel):
+    reason: str
 
 
-class AdminUpdateInvoiceSchema(BaseModel):
+class ApproveAllPayload(BaseModel):
+    invoice_ids: List[int]
+
+
+class AdminUpdatePaymentSchema(BaseModel):
     status: Literal["pending", "paid", "overdue", "failed", "canceled"]
     payment_date: Optional[date] = None
     payment_notes: Optional[str] = None
+    proof_of_payment_url: Optional[str] = None
 
 
 class AdminInvoiceItem(BaseModel):
@@ -45,6 +57,7 @@ class AdminInvoiceItem(BaseModel):
     due_date: Optional[date]
     total_amount: float
     status: str
+    approval_status: str
     proof_of_payment_url: Optional[str]
 
 
@@ -65,44 +78,203 @@ class PaginatedGroupedInvoicesResponse(BaseModel):
     data: List[GroupedInvoices]
 
 
-@router.post("/generate-pdf")
-async def generate_pdf_from_html(request: Request):
+async def trigger_send_invoice_workflow(invoice_id: int):
+    if not N8N_SEND_INVOICE_WEBHOOK_URL:
+        print(
+            f"ERROR: N8N_SEND_INVOICE_WEBHOOK_URL is not set. Cannot send invoice {invoice_id}."
+        )
+        return
+
     try:
-        html_content = await request.body()
-        if not html_content:
-            raise HTTPException(status_code=400, detail="HTML content is missing.")
-        pdf_bytes = HTML(string=html_content.decode("utf-8")).write_pdf()
-        return Response(content=pdf_bytes, media_type="application/pdf")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                N8N_SEND_INVOICE_WEBHOOK_URL,
+                json={"invoice_id": invoice_id},
+                timeout=10,
+            )
+    except httpx.RequestError as e:
+        print(f"Failed to trigger n8n workflow for invoice {invoice_id}: {e}")
+
+
+def get_current_admin_user_id(request: Request) -> int:
+    user_details = request.state.user
+    if user_details.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Access denied"
+        )
+    return user_details.get("id")
+
+
+@router.post("/admin/{invoice_id}/approve")
+async def approve_invoice(
+    invoice_id: int,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Annotated[any, Depends(get_db)],
+):
+    admin_user_id = get_current_admin_user_id(request)
+    cursor = db.cursor()
+    try:
+        cursor.execute(
+            invoice_queries.GET_INVOICE_APPROVAL_STATUS_AND_CLIENT_ID, (invoice_id,)
+        )
+        invoice = cursor.fetchone()
+
+        if not invoice:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found."
+            )
+        if invoice[0] != "draft":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invoice is not in 'draft' status. Current status: {invoice[0]}",
+            )
+
+        cursor.execute(invoice_queries.APPROVE_INVOICE, (admin_user_id, invoice_id))
+        if cursor.rowcount == 0:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Failed to approve invoice. It may have been processed already.",
+            )
+        db.commit()
+
+        background_tasks.add_task(trigger_send_invoice_workflow, invoice_id)
+        return {"message": f"Invoice {invoice_id} approved and is being sent."}
+    finally:
+        cursor.close()
+        db.close()
+
+
+@router.post("/admin/{invoice_id}/reject")
+def reject_invoice(
+    invoice_id: int,
+    payload: RejectInvoicePayload,
+    request: Request,
+    db: Annotated[any, Depends(get_db)],
+):
+    admin_user_id = get_current_admin_user_id(request)
+    cursor = db.cursor()
+    try:
+        cursor.execute(
+            invoice_queries.GET_INVOICE_APPROVAL_STATUS_AND_CLIENT_ID, (invoice_id,)
+        )
+        invoice = cursor.fetchone()
+
+        if not invoice:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found."
+            )
+        if invoice[0] != "draft":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only draft invoices can be rejected.",
+            )
+
+        cursor.execute(
+            invoice_queries.REJECT_INVOICE, (admin_user_id, payload.reason, invoice_id)
+        )
+        if cursor.rowcount == 0:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Failed to reject invoice."
+            )
+        db.commit()
+        return {"message": f"Invoice {invoice_id} has been rejected."}
+    finally:
+        cursor.close()
+        db.close()
+
+
+@router.post("/admin/approve-all")
+async def approve_all_invoices(
+    payload: ApproveAllPayload,
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
+    admin_user_id = get_current_admin_user_id(request)
+    approved_ids, errors = [], []
+
+    for invoice_id in payload.invoice_ids:
+        conn = get_db()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                invoice_queries.GET_INVOICE_APPROVAL_STATUS_AND_CLIENT_ID, (invoice_id,)
+            )
+            invoice = cursor.fetchone()
+            if not invoice or invoice[0] != "draft":
+                errors.append({"id": invoice_id, "error": "Not a draft or not found."})
+                continue
+
+            cursor.execute(invoice_queries.APPROVE_INVOICE, (admin_user_id, invoice_id))
+            if cursor.rowcount > 0:
+                conn.commit()
+                background_tasks.add_task(trigger_send_invoice_workflow, invoice_id)
+                approved_ids.append(invoice_id)
+            else:
+                conn.rollback()
+                errors.append(
+                    {
+                        "id": invoice_id,
+                        "error": "Update failed, possibly already processed.",
+                    }
+                )
+        except Exception as e:
+            conn.rollback()
+            errors.append({"id": invoice_id, "error": str(e)})
+        finally:
+            cursor.close()
+            conn.close()
+
+    return {
+        "message": "Bulk approval process finished.",
+        "approved_count": len(approved_ids),
+        "error_count": len(errors),
+        "errors": errors,
+    }
 
 
 @router.get("/admin/all", response_model=PaginatedGroupedInvoicesResponse)
 def get_all_invoices_for_admin(
     request: Request,
-    db: Annotated = Depends(get_db),
+    db: Annotated[any, Depends(get_db)],
     page: int = Query(1, ge=1),
     limit: int = Query(15, ge=1),
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None),
     status: Optional[str] = Query(None),
+    approval_status: Optional[str] = Query(None),
     clientId: Optional[int] = Query(None),
 ):
-    if request.state.user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Access denied")
-
+    get_current_admin_user_id(request)
     cursor = db.cursor()
-    filter_params = (status, status, clientId, clientId, month, month, year, year)
+    try:
+        filter_params = (
+            status,
+            status,
+            approval_status,
+            approval_status,
+            clientId,
+            clientId,
+            month,
+            month,
+            year,
+            year,
+        )
+        cursor.execute(invoice_queries.COUNT_INVOICES_FOR_ADMIN, filter_params)
+        total_items = cursor.fetchone()[0]
+        total_pages = ceil(total_items / limit)
 
-    cursor.execute(COUNT_INVOICES_FOR_ADMIN, filter_params)
-    total_items = cursor.fetchone()[0]
-    total_pages = ceil(total_items / limit)
-
-    offset = (page - 1) * limit
-    paginated_params = (*filter_params, limit, offset)
-    cursor.execute(GET_PAGINATED_INVOICES_FOR_ADMIN, paginated_params)
-    invoices_raw = cursor.fetchall()
-    db.close()
+        offset = (page - 1) * limit
+        paginated_params = (*filter_params, limit, offset)
+        cursor.execute(
+            invoice_queries.GET_PAGINATED_INVOICES_FOR_ADMIN, paginated_params
+        )
+        invoices_raw = cursor.fetchall()
+    finally:
+        cursor.close()
+        db.close()
 
     grouped_invoices = defaultdict(list)
     for row in invoices_raw:
@@ -114,7 +286,8 @@ def get_all_invoices_for_admin(
             due_date=row[4],
             total_amount=float(row[5] or 0),
             status=row[6],
-            proof_of_payment_url=row[7],
+            approval_status=row[7],
+            proof_of_payment_url=row[8],
         )
         month_key = row[3].strftime("%B %Y")
         grouped_invoices[month_key].append(invoice_item)
@@ -124,7 +297,6 @@ def get_all_invoices_for_admin(
         for month, invoices in grouped_invoices.items()
     ]
 
-    # Langkah 4: Susun respons akhir
     return PaginatedGroupedInvoicesResponse(
         pagination=PaginationResponse(
             total_items=total_items,
@@ -136,44 +308,56 @@ def get_all_invoices_for_admin(
     )
 
 
-@router.patch("/admin/{invoice_id}/details")
-def admin_update_invoice_details(
+@router.patch("/admin/{invoice_id}/payment-details")
+def admin_update_payment_details(
     invoice_id: int,
-    payload: AdminUpdateInvoiceSchema,
+    payload: AdminUpdatePaymentSchema,
     request: Request,
-    db: Annotated = Depends(get_db),
+    db: Annotated[any, Depends(get_db)],
 ):
-    if request.state.user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Access denied")
+    get_current_admin_user_id(request)
+    cursor = db.cursor()
     try:
-        cursor = db.cursor()
-        cursor.execute(
-            ADMIN_UPDATE_INVOICE_DETAILS,
-            (payload.status, payload.payment_date, payload.payment_notes, invoice_id),
+        params = (
+            payload.status,
+            payload.payment_date,
+            payload.payment_notes,
+            payload.proof_of_payment_url,
+            invoice_id,
         )
+        cursor.execute(invoice_queries.ADMIN_UPDATE_PAYMENT_DETAILS, params)
         if cursor.rowcount == 0:
             db.rollback()
-            raise HTTPException(status_code=404, detail="Invoice not found.")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found."
+            )
         db.commit()
-        return {"message": "Invoice details updated successfully."}
+        return {"message": "Invoice payment details updated successfully."}
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
     finally:
+        cursor.close()
         db.close()
 
 
 @router.get("/")
 def get_client_invoices(
     request: Request,
-    db: Annotated = Depends(get_db),
+    db: Annotated[any, Depends(get_db)],
     clientId: Optional[str] = Query(None),
 ):
     target_client_id = _get_target_client_id(request, clientId)
     cursor = db.cursor()
-    cursor.execute(GET_INVOICES_BY_CLIENT_ID, (target_client_id,))
-    invoices_raw = cursor.fetchall()
-    db.close()
+    try:
+        cursor.execute(invoice_queries.GET_INVOICES_BY_CLIENT_ID, (target_client_id,))
+        invoices_raw = cursor.fetchall()
+    finally:
+        cursor.close()
+        db.close()
+
     invoices = [
         {
             "id": row[0],
@@ -191,53 +375,49 @@ def get_client_invoices(
 
 @router.get("/{invoice_id}/view")
 def get_invoice_view_url(
-    invoice_id: int,
-    request: Request,
-    db: Annotated = Depends(get_db),
+    invoice_id: int, request: Request, db: Annotated[any, Depends(get_db)]
 ):
     user_details = request.state.user
     cursor = db.cursor()
-    cursor.execute(GET_INVOICE_DETAILS_BY_ID, (invoice_id,))
-    invoice_data = cursor.fetchone()
-    db.close()
+    try:
+        cursor.execute(invoice_queries.GET_INVOICE_DETAILS_BY_ID, (invoice_id,))
+        invoice_data = cursor.fetchone()
+    finally:
+        cursor.close()
+        db.close()
+
     if not invoice_data:
-        raise HTTPException(status_code=404, detail="Invoice not found.")
-    invoice_storage_path = invoice_data[1]
-    invoice_client_id = invoice_data[2]
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found."
+        )
+
+    storage_path_url, invoice_client_id = invoice_data[1], invoice_data[2]
     is_admin = user_details.get("role") == "admin"
     user_client_id = user_details.get("clientId")
+
     if not is_admin and str(user_client_id) != str(invoice_client_id):
         raise HTTPException(
-            status_code=403, detail="Forbidden: You do not have access to this invoice."
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: You do not have access to this invoice.",
         )
+
+    return {"url": storage_path_url}
+
+
+@router.post("/generate-pdf")
+async def generate_pdf_from_html(request: Request):
     try:
-        signed_url_response = supabase.storage.from_("invoices").create_signed_url(
-            invoice_storage_path, 60
-        )
-        return {"url": signed_url_response.get("signedURL")}
+        html_content = await request.body()
+        if not html_content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="HTML content is missing.",
+            )
+
+        pdf_bytes = HTML(string=html_content.decode("utf-8")).write_pdf()
+        return Response(content=pdf_bytes, media_type="application/pdf")
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Could not generate invoice URL: {str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate PDF: {str(e)}",
         )
-
-
-@router.patch("/{invoice_id}/status")
-def update_invoice_status(
-    invoice_id: int,
-    payload: UpdateStatusPayload,
-    request: Request,
-    db: Annotated = Depends(get_db),
-):
-    if request.state.user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Access denied")
-    cursor = db.cursor()
-    cursor.execute(UPDATE_INVOICE_STATUS, (payload.status, invoice_id))
-    db.commit()
-    if cursor.rowcount == 0:
-        db.close()
-        raise HTTPException(status_code=404, detail="Invoice not found.")
-    db.close()
-    return {
-        "message": "Invoice status updated successfully.",
-        "newStatus": payload.status,
-    }
