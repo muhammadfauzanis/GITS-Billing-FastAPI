@@ -79,21 +79,33 @@ class PaginatedGroupedInvoicesResponse(BaseModel):
 
 
 async def trigger_send_invoice_workflow(invoice_id: int):
-    if not N8N_SEND_INVOICE_WEBHOOK_URL:
+    INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
+
+    if not N8N_SEND_INVOICE_WEBHOOK_URL or not INTERNAL_API_KEY:
         print(
-            f"ERROR: N8N_SEND_INVOICE_WEBHOOK_URL is not set. Cannot send invoice {invoice_id}."
+            f"CRITICAL: N8N_SEND_INVOICE_WEBHOOK_URL or INTERNAL_API_KEY is not set. Cannot send invoice {invoice_id}."
         )
         return
 
     try:
+        headers = {"X-API-KEY": INTERNAL_API_KEY}
+
         async with httpx.AsyncClient() as client:
-            await client.post(
+            response = await client.post(
                 N8N_SEND_INVOICE_WEBHOOK_URL,
                 json={"invoice_id": invoice_id},
-                timeout=10,
+                headers=headers,
+                timeout=15,
             )
+            response.raise_for_status()
+            print(f"Successfully triggered n8n send workflow for invoice {invoice_id}")
+
     except httpx.RequestError as e:
         print(f"Failed to trigger n8n workflow for invoice {invoice_id}: {e}")
+    except httpx.HTTPStatusError as e:
+        print(
+            f"n8n send workflow returned an error for invoice {invoice_id}: {e.response.status_code}"
+        )
 
 
 def get_current_admin_user_id(request: Request) -> int:
@@ -421,3 +433,49 @@ async def generate_pdf_from_html(request: Request):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate PDF: {str(e)}",
         )
+
+
+@router.post("/admin/generate-all-invoices")
+async def trigger_all_invoices_generation(request: Request):
+    if request.state.user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Access denied"
+        )
+
+    webhook_url = os.getenv("N8N_GENERATE_INVOICES_WEBHOOK_URL")
+    api_key = os.getenv("INTERNAL_API_KEY")
+
+    if not webhook_url or not api_key:
+        print("CRITICAL: N8N_GENERATE_INVOICES_WEBHOOK_URL or N8N_API_KEY is not set.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Webhook configuration is missing on the server.",
+        )
+
+    try:
+        headers = {"X-API-KEY": api_key}
+        async with httpx.AsyncClient() as client:
+            response = await client.post(webhook_url, headers=headers, timeout=15.0)
+            response.raise_for_status()
+
+    except httpx.RequestError as e:
+        print(f"Error calling n8n generate-invoices webhook: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not connect to the invoice generation service.",
+        )
+    except httpx.HTTPStatusError as e:
+        print(
+            f"n8n generate-invoices webhook returned an error: {e.response.status_code}"
+        )
+        if e.response.status_code == 403:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Authentication failed with the invoice service. Check API Key.",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"The invoice generation service returned an error: {e.response.status_code}",
+        )
+
+    return {"message": "Process to generate all invoices has been started."}
